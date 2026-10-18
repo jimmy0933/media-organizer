@@ -33,17 +33,17 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
  private long lastProgress;
  private static class OperationController {
      final java.util.concurrent.ExecutorService fileWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
-     java.util.List<MoveRecord> op().pending;
-     boolean op().undoing;
-     String op().destination;
-     boolean op().isDeleting;
-     java.util.List<Scanner.Item> op().pendingDeletes;
-     boolean op().fileBusy;
-     boolean op().operationHasSuccess = false;
-     int op().operationMoved = 0;
-     int op().operationFailed = 0;
-     int op().operationDeleted = 0;
-     int op().operationDeleteFailed = 0;
+     java.util.List<MoveRecord> pending;
+     boolean undoing;
+     String destination;
+     boolean isDeleting;
+     java.util.List<Scanner.Item> pendingDeletes;
+     boolean fileBusy;
+     boolean operationHasSuccess = false;
+     int operationMoved = 0;
+     int operationFailed = 0;
+     int operationDeleted = 0;
+     int operationDeleteFailed = 0;
      static OperationController instance;
      static OperationController getInstance() {
          if (instance == null) instance = new OperationController();
@@ -134,13 +134,13 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
 
   mediaTypeSpinner=new Spinner(this);
   String[] mediaTypes={"全部","僅照片","僅影片"};
-  ArrayAdapter<String> mediaAdapter=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_item,mediaTypes){public View getView(int p,View v,android.view.ViewGroup parent){TextView t=(TextView)super.getView(p,v,parent);t.setTextColor(TEXT);return t;}};
+  ArrayAdapter<String> mediaAdapter=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_item,mediaTypes){public View getView(int p,View v,ViewGroup parent){TextView t=(TextView)super.getView(p,v,parent);t.setTextColor(TEXT);return t;}};
   mediaAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
   mediaTypeSpinner.setAdapter(mediaAdapter);
 
   strictness=new Spinner(this);
   String[] labels={"嚴格（建議）","一般","寬鬆（較多誤判）"};
-  ArrayAdapter<String> mediaAdapter2=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_item,labels){public View getView(int p,View v,android.view.ViewGroup parent){TextView t=(TextView)super.getView(p,v,parent);t.setTextColor(TEXT);return t;}};
+  ArrayAdapter<String> mediaAdapter2=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_item,labels){public View getView(int p,View v,ViewGroup parent){TextView t=(TextView)super.getView(p,v,parent);t.setTextColor(TEXT);return t;}};
   mediaAdapter2.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
   strictness.setAdapter(mediaAdapter2);
 
@@ -448,10 +448,10 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
      }
  }
  }
- private class ItemAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+ private class ItemAdapter extends androidx.recyclerview.widget.RecyclerView.Adapter<androidx.recyclerview.widget.RecyclerView.ViewHolder> {
      List<ListItem> data = new ArrayList<>();
      void update(List<ListItem> newData) {
-         DiffUtil.calculateDiff(new DiffUtil.Callback() {
+         androidx.recyclerview.widget.DiffUtil.DiffResult diffResult = androidx.recyclerview.widget.DiffUtil.calculateDiff(new androidx.recyclerview.widget.DiffUtil.Callback() {
              public int getOldListSize() { return data.size(); }
              public int getNewListSize() { return newData.size(); }
              public boolean areItemsTheSame(int o, int n) {
@@ -470,11 +470,12 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
                  }
                  return true;
              }
-         }).dispatchUpdatesTo(this);
+         });
+         diffResult.dispatchUpdatesTo(this);
          data = newData;
      }
      public int getItemViewType(int pos) { return data.get(pos).type; }
-     public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+     public androidx.recyclerview.widget.RecyclerView.ViewHolder onCreateViewHolder(android.view.ViewGroup parent, int viewType) {
          if (viewType == 3) {
              LinearLayout empty = new LinearLayout(MainActivity.this); empty.setOrientation(1); empty.setGravity(Gravity.CENTER);
              empty.setPadding(0, dp(40), 0, dp(40));
@@ -533,7 +534,7 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
              return new RecyclerView.ViewHolder(row) {};
          }
      }
-     public void onBindViewHolder(RecyclerView.ViewHolder holder, int pos) {
+     public void onBindViewHolder(androidx.recyclerview.widget.RecyclerView.ViewHolder holder, int pos) {
          ListItem item = data.get(pos);
          if (item.type == 3) {
              LinearLayout v = (LinearLayout)holder.itemView;
@@ -601,7 +602,6 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
      }
      public int getItemCount() { return data.size(); }
  }
-
  private void render() {
   updateSelection();
   List<ListItem> newData = new ArrayList<>();
@@ -841,7 +841,7 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
    int directDeleted=0;
    for(Scanner.Item item:directList){
     boolean exists = false;
-    try (android.database.Cursor c = getContentResolver().query(item.uri, new String[]{android.provider.MediaStore.MediaColumns._ID}, null, null, null)) {
+    try (android.database.Cursor c = getContentResolver().query(item.uri, new String[]{MediaStore.MediaColumns._ID}, null, null, null)) {
         if (c != null && c.moveToFirst()) exists = true;
     } catch(Exception e) {}
     if (!exists) {
@@ -1079,7 +1079,7 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
     if(r.newPath==null||r.newPath.isEmpty()||(!op().undoing&&(r.oldPath==null||r.oldPath.isEmpty())))throw new java.io.IOException("原資料夾紀錄不完整");
 
     boolean alreadyMoved = false;
-    try (android.database.Cursor c = getContentResolver().query(r.uri, new String[]{android.provider.MediaStore.MediaColumns.RELATIVE_PATH}, null, null, null)) {
+    try (android.database.Cursor c = getContentResolver().query(r.uri, new String[]{MediaStore.MediaColumns.RELATIVE_PATH}, null, null, null)) {
         if (c != null && c.moveToFirst()) {
             String currentPath = c.getString(0);
             if (currentPath != null && currentPath.equals(r.newPath)) {
@@ -1092,7 +1092,7 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
     if (alreadyMoved) { moved++; successfulRecords.add(r); if(r.item!=null)r.item.removed=true; continue; }
 
     String finalName=collision(r.uri,r.newPath,r.newName)?uniqueName(r.newName):r.newName;
-    android.content.ContentValues values=new android.content.ContentValues();values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH,r.newPath);values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME,finalName);
+    android.content.ContentValues values=new android.content.ContentValues();values.put(MediaStore.MediaColumns.RELATIVE_PATH,r.newPath);values.put(MediaStore.MediaColumns.DISPLAY_NAME,finalName);
     if(!op().undoing){appendJournalPending(r);}
     int updated=getContentResolver().update(r.uri,values,null,null);if(updated!=1)throw new java.io.IOException("檔案更新失敗");moved++;
     if(!op().undoing){if(!op().operationHasSuccess){op().operationHasSuccess=true;}}
@@ -1140,13 +1140,13 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
    org.json.JSONArray valid = new org.json.JSONArray();
    for (int i = 0; i < pending.length(); i++) {
        org.json.JSONObject o = pending.getJSONObject(i);
-       android.net.Uri uri = android.net.Uri.parse(o.getString("uri"));
+       Uri uri = Uri.parse(o.getString("uri"));
        String expectedPath = o.optString("newPath", null);
        String expectedName = o.optString("newName", null);
 
        if (expectedPath == null || expectedName == null) continue;
 
-       try (android.database.Cursor c = getContentResolver().query(uri, new String[]{android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.provider.MediaStore.MediaColumns.DISPLAY_NAME}, null, null, null)) {
+       try (android.database.Cursor c = getContentResolver().query(uri, new String[]{MediaStore.MediaColumns.RELATIVE_PATH, MediaStore.MediaColumns.DISPLAY_NAME}, null, null, null)) {
            if (c != null && c.moveToFirst()) {
                String currentPath = c.getString(0);
                String currentName = c.getString(1);
@@ -1181,7 +1181,7 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
    org.json.JSONObject root=new org.json.JSONObject(out.toString("UTF-8"));
    Scanner.Result res=new Scanner.Result();org.json.JSONArray all=root.getJSONArray("all");
    for(int i=0;i<all.length();i++){
-    org.json.JSONObject o=all.getJSONObject(i);Scanner.Item item=new Scanner.Item();item.uri=android.net.Uri.parse(o.getString("uri"));item.name=o.optString("name","");item.mime=o.optString("mime",null);item.path=o.optString("path","");item.size=o.optLong("size",0);item.duration=o.optLong("duration",0);item.video=o.optBoolean("video",false);item.removed=o.optBoolean("removed",false);
+    org.json.JSONObject o=all.getJSONObject(i);Scanner.Item item=new Scanner.Item();item.uri=Uri.parse(o.getString("uri"));item.name=o.optString("name","");item.mime=o.optString("mime",null);item.path=o.optString("path","");item.size=o.optLong("size",0);item.duration=o.optLong("duration",0);item.video=o.optBoolean("video",false);item.removed=o.optBoolean("removed",false);
     if(o.has("thumb"))item.thumb=new java.io.File(o.getString("thumb"));res.all.add(item);
    }
    res.exact.addAll(jsonToGroups(root.getJSONArray("exact"),res.all));res.similar.addAll(jsonToGroups(root.getJSONArray("similar"),res.all));res.people.addAll(jsonToGroups(root.getJSONArray("people"),res.all));
