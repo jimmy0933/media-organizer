@@ -98,6 +98,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
+      fail-fast: false
       matrix:
         api-level: [30, 35]
     steps:
@@ -131,7 +132,7 @@ jobs:
           script: bash tests/emulator-smoke.sh ${{ matrix.api-level }}
 
       - name: Upload Diagnostics
-        if: failure() || cancelled()
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Diagnostics-API${{ matrix.api-level }}
@@ -141,6 +142,7 @@ jobs:
 
   publish:
     needs: [build, smoke_test]
+    if: success()
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source

@@ -105,7 +105,7 @@ public class ScanService extends Service {
 
         scanExecutor.execute(() -> {
             try {
-                performClearCache(appContext);
+                performClearCache(appContext, currentScanGeneration);
                 Scanner scanner = new Scanner(appContext, new Scanner.Progress() {
                     @Override
                     public boolean cancelled() {
@@ -174,17 +174,17 @@ public class ScanService extends Service {
         return currentScanGeneration;
     }
 
-    private static void performClearCache(Context context) {
+    private static void performClearCache(android.content.Context context, long generationToKeep) {
         if (context == null) return;
         synchronized (CACHE_LOCK) {
-            File cacheDir = context.getCacheDir();
-            File[] dirs = cacheDir.listFiles();
+            java.io.File cacheDir = context.getCacheDir();
+            java.io.File[] dirs = cacheDir.listFiles();
             if (dirs != null) {
-                for (File d : dirs) {
-                    if (d.isDirectory() && d.getName().startsWith("thumbs_")) {
-                        File[] files = d.listFiles();
+                for (java.io.File d : dirs) {
+                    if (d.isDirectory() && d.getName().startsWith("thumbs_") && !d.getName().equals("thumbs_" + generationToKeep)) {
+                        java.io.File[] files = d.listFiles();
                         if (files != null) {
-                            for (File f : files) {
+                            for (java.io.File f : files) {
                                 f.delete();
                             }
                         }
@@ -192,15 +192,15 @@ public class ScanService extends Service {
                     }
                 }
             }
-            File cache = cacheFile(context);
+            java.io.File cache = cacheFile(context);
             if (cache.exists()) {
                 cache.delete();
             }
-            File deleted = new File(context.getFilesDir(), "scan-cache.deleted");
+            java.io.File deleted = new java.io.File(context.getFilesDir(), "scan-cache.deleted");
             if (deleted.exists()) {
                 deleted.delete();
             }
-            File tmp = new File(context.getFilesDir(), "scan-cache.tmp");
+            java.io.File tmp = new java.io.File(context.getFilesDir(), "scan-cache.tmp");
             if (tmp.exists()) {
                 tmp.delete();
             }
@@ -220,7 +220,7 @@ public class ScanService extends Service {
                     cache.renameTo(deleted);
                 }
             }
-            ioExecutor.execute(() -> performClearCache(appContext));
+            ioExecutor.execute(() -> performClearCache(appContext, currentGeneration.get()));
         }
         return gen;
     }

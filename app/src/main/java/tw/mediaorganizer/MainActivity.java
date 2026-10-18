@@ -27,11 +27,31 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
  private View footerContainer;
  private android.widget.Switch people,bgScan;private Spinner strictness,mediaTypeSpinner;private Button scan,move,deleteBtn,cancel;
  private final ExecutorService fileWorker=Executors.newSingleThreadExecutor();
- private volatile boolean dead,busy,fileBusy;private Scanner.Result result;
+ private volatile boolean dead,busy;private Scanner.Result result;
  private final LinkedHashSet<Scanner.Item> selected=new LinkedHashSet<>();private int mode=0,limit=20;
  private final Set<Scanner.Group> expandedGroups = new HashSet<>();
- private List<MoveRecord> pending;private boolean undoing;private String destination;private long lastProgress;
- private boolean isDeleting;private List<Scanner.Item> pendingDeletes;
+ private long lastProgress;
+ private static class OperationController {
+     final java.util.concurrent.ExecutorService fileWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
+     java.util.List<MoveRecord> pending;
+     boolean undoing;
+     String destination;
+     boolean isDeleting;
+     java.util.List<Scanner.Item> pendingDeletes;
+     boolean fileBusy;
+     boolean operationHasSuccess = false;
+     int operationMoved = 0;
+     int operationFailed = 0;
+     int operationDeleted = 0;
+     int operationDeleteFailed = 0;
+     static OperationController instance;
+     static OperationController getInstance() {
+         if (instance == null) instance = new OperationController();
+         return instance;
+     }
+ }
+ private OperationController op() { return OperationController.getInstance(); }
+
  private final Set<String> sourceFilters=new TreeSet<>();
  private long resultGeneration;
 
@@ -114,13 +134,13 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
 
   mediaTypeSpinner=new Spinner(this);
   String[] mediaTypes={"全部","僅照片","僅影片"};
-  ArrayAdapter<String> mediaAdapter=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_item,mediaTypes){public View getView(int p,View v,android.view.ViewGroup parent){TextView t=(TextView)super.getView(p,v,parent);t.setTextColor(TEXT);return t;}};
+  ArrayAdapter<String> mediaAdapter=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_item,mediaTypes){public View getView(int p,View v,ViewGroup parent){TextView t=(TextView)super.getView(p,v,parent);t.setTextColor(TEXT);return t;}};
   mediaAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
   mediaTypeSpinner.setAdapter(mediaAdapter);
 
   strictness=new Spinner(this);
   String[] labels={"嚴格（建議）","一般","寬鬆（較多誤判）"};
-  ArrayAdapter<String> mediaAdapter2=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_item,labels){public View getView(int p,View v,android.view.ViewGroup parent){TextView t=(TextView)super.getView(p,v,parent);t.setTextColor(TEXT);return t;}};
+  ArrayAdapter<String> mediaAdapter2=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_item,labels){public View getView(int p,View v,ViewGroup parent){TextView t=(TextView)super.getView(p,v,parent);t.setTextColor(TEXT);return t;}};
   mediaAdapter2.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
   strictness.setAdapter(mediaAdapter2);
 
@@ -240,19 +260,19 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
   render();
 
   loadOpState();
-  if (fileBusy) {
-      if (isDeleting && pendingDeletes != null && !pendingDeletes.isEmpty()) {
+  if (op().fileBusy) {
+      if (op().isDeleting && op().pendingDeletes != null && !op().pendingDeletes.isEmpty()) {
           requestDeleteBatch();
-      } else if (pending != null && !pending.isEmpty()) {
+      } else if (op().pending != null && !op().pending.isEmpty()) {
           requestWrite();
       } else {
-          fileBusy = false;
+          op().fileBusy = false;
       }
   } else {
-      fileBusy = false;
+      op().fileBusy = false;
   }
 
-  fileWorker.execute(() -> {
+  op().fileWorker.execute(() -> {
       try { promotePendingJournal(); } catch (Exception e) {}
   });
  }
@@ -307,7 +327,7 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
  }
 
  private void requestScan(){
-  if(busy||fileBusy)return;int mediaType=mediaTypeSpinner.getSelectedItemPosition();
+  if(busy||op().fileBusy)return;int mediaType=mediaTypeSpinner.getSelectedItemPosition();
   ArrayList<String> perms=new ArrayList<>();
   if(Build.VERSION.SDK_INT>=33){
    if(mediaType!=2&&!permission("android.permission.READ_MEDIA_IMAGES"))perms.add("android.permission.READ_MEDIA_IMAGES");
@@ -351,15 +371,15 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
 
  private void setBusy(boolean b){
   busy=b;
-  scan.setEnabled(!b&&!fileBusy);
+  scan.setEnabled(!b&&!op().fileBusy);
   cancel.setEnabled(b);
   cancel.setVisibility(b ? View.VISIBLE : View.GONE);
   people.setEnabled(!b);
   bgScan.setEnabled(!b);
   strictness.setEnabled(!b);
   mediaTypeSpinner.setEnabled(!b);
-  move.setEnabled(!selected.isEmpty()&&!fileBusy);
-  deleteBtn.setEnabled(!selected.isEmpty()&&!fileBusy);
+  move.setEnabled(!selected.isEmpty()&&!op().fileBusy);
+  deleteBtn.setEnabled(!selected.isEmpty()&&!op().fileBusy);
   if(b)getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
   else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
  }
@@ -416,15 +436,21 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
  private void ui(Runnable r){if(!dead)runOnUiThread(()->{if(!dead)r.run();});}
 
  private class ListItem {
-     int type; // 0 = title, 1 = group header, 2 = item
-     Scanner.Group group; Scanner.Item item;
+     int type; Scanner.Group group; Scanner.Item item;
      String text; boolean checked;
-     ListItem(int t, Scanner.Group g, Scanner.Item i, String s, boolean c) { type = t; group = g; item = i; text = s; checked = c; }
+     String thumbPath; boolean video;
+     ListItem(int t, Scanner.Group g, Scanner.Item i, String s, boolean c) {
+         type = t; group = g; item = i; text = s; checked = c;
+         if (i != null) {
+             thumbPath = i.thumb != null ? i.thumb.getPath() : null;
+             video = i.video;
+         }
+     }
  }
- private class ItemAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+ private class ItemAdapter extends androidx.recyclerview.widget.RecyclerView.Adapter<androidx.recyclerview.widget.RecyclerView.ViewHolder> {
      List<ListItem> data = new ArrayList<>();
      void update(List<ListItem> newData) {
-         DiffUtil.calculateDiff(new DiffUtil.Callback() {
+         androidx.recyclerview.widget.DiffUtil.DiffResult diffResult = androidx.recyclerview.widget.DiffUtil.calculateDiff(new androidx.recyclerview.widget.DiffUtil.Callback() {
              public int getOldListSize() { return data.size(); }
              public int getNewListSize() { return newData.size(); }
              public boolean areItemsTheSame(int o, int n) {
@@ -436,14 +462,19 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
              }
              public boolean areContentsTheSame(int o, int n) {
                  ListItem oldItem = data.get(o), newItem = newData.get(n);
-                 if (oldItem.type == 2) return oldItem.checked == newItem.checked;
+                 if (oldItem.type == 2) {
+                     boolean sameThumb = (oldItem.thumbPath == null && newItem.thumbPath == null) ||
+                                         (oldItem.thumbPath != null && oldItem.thumbPath.equals(newItem.thumbPath));
+                     return oldItem.checked == newItem.checked && oldItem.video == newItem.video && sameThumb;
+                 }
                  return true;
              }
-         }).dispatchUpdatesTo(this);
+         });
+         diffResult.dispatchUpdatesTo(this);
          data = newData;
      }
      public int getItemViewType(int pos) { return data.get(pos).type; }
-     public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+     public androidx.recyclerview.widget.RecyclerView.ViewHolder onCreateViewHolder(android.view.ViewGroup parent, int viewType) {
          if (viewType == 3) {
              LinearLayout empty = new LinearLayout(MainActivity.this); empty.setOrientation(1); empty.setGravity(Gravity.CENTER);
              empty.setPadding(0, dp(40), 0, dp(40));
@@ -502,7 +533,7 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
              return new RecyclerView.ViewHolder(row) {};
          }
      }
-     public void onBindViewHolder(RecyclerView.ViewHolder holder, int pos) {
+     public void onBindViewHolder(androidx.recyclerview.widget.RecyclerView.ViewHolder holder, int pos) {
          ListItem item = data.get(pos);
          if (item.type == 3) {
              LinearLayout v = (LinearLayout)holder.itemView;
@@ -552,7 +583,7 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
                  if (c != null) thumb.setImageBitmap(c);
                  else {
                      thumb.setTag(item.item.uri.toString());
-                     fileWorker.execute(() -> {
+                     op().fileWorker.execute(() -> {
                          android.graphics.Bitmap b = smallThumb(item.item.thumb);
                          if(b!=null) { thumbCache.put(item.item.thumb.getPath(), b); ui(() -> {if(item.item.uri.toString().equals(thumb.getTag())) thumb.setImageBitmap(b);}); }
                      });
@@ -570,7 +601,6 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
      }
      public int getItemCount() { return data.size(); }
  }
-
  private void render() {
   updateSelection();
   List<ListItem> newData = new ArrayList<>();
@@ -752,9 +782,9 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
  private void updateSelection(){
   long total=0;for(Scanner.Item i:selected)total+=i.size;
   selection.setText("已選 "+selected.size()+" 個 · "+format(total));
-  if(scan!=null)scan.setEnabled(!busy&&!fileBusy);
-  if(move!=null)move.setEnabled(!selected.isEmpty()&&!fileBusy);
-  if(deleteBtn!=null)deleteBtn.setEnabled(!selected.isEmpty()&&!fileBusy);
+  if(scan!=null)scan.setEnabled(!busy&&!op().fileBusy);
+  if(move!=null)move.setEnabled(!selected.isEmpty()&&!op().fileBusy);
+  if(deleteBtn!=null)deleteBtn.setEnabled(!selected.isEmpty()&&!op().fileBusy);
   if(footerContainer!=null) footerContainer.setVisibility(selected.isEmpty() ? View.GONE : View.VISIBLE);
  }
  private void preview(Scanner.Item item){try{Intent intent=new Intent(Intent.ACTION_VIEW);intent.setDataAndType(item.uri,item.mime!=null?item.mime:item.video?"video/*":"image/*");intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(intent);}catch(ActivityNotFoundException e){new androidx.appcompat.app.AlertDialog.Builder(this).setMessage("手機沒有可開啟此媒體的應用程式。").setPositiveButton("確定",null).show();}}
@@ -768,7 +798,7 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
   getPreferences(0).edit().putString("folder",input).apply();return target;
  }
  private void confirmMove(){
-  if(selected.isEmpty()||fileBusy)return;
+  if(selected.isEmpty()||op().fileBusy)return;
   List<String> folders=getMediaSubfolders();
   folders.add("[ 新增/手動輸入資料夾… ]");
   String[] items=folders.toArray(new String[0]);
@@ -785,30 +815,40 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
  }
  private void promptMoveConfirmation(String folderName){
   String target=validateDestination(folderName);if(target==null)return;ArrayList<Scanner.Item> snapshot=new ArrayList<>(selected);
-  new androidx.appcompat.app.AlertDialog.Builder(this).setTitle("確認移動 "+snapshot.size()+" 個檔案").setMessage("目的地："+target+"\n移動後會離開原資料夾；不刪除重複檔。相似與人物分組請先確認。\n同名檔會加上識別碼，不覆蓋既有檔案。\n這次成功的移動會取代上次復原紀錄。").setNegativeButton("取消",null).setPositiveButton("移動",(d,w)->{destination=target;pending=new ArrayList<>();for(Scanner.Item item:snapshot)if(!target.equals(item.path)){MoveRecord r=new MoveRecord();r.uri=item.uri;r.oldPath=item.path;r.oldName=item.name;r.newPath=target;r.newName=item.name;r.item=item;pending.add(r);}undoing=false;isDeleting=false;operationHasSuccess=false;operationMoved=operationFailed=0;fileBusy=true;backupJournal();updateSelection();requestWrite();}).show();
+  new androidx.appcompat.app.AlertDialog.Builder(this).setTitle("確認移動 "+snapshot.size()+" 個檔案").setMessage("目的地："+target+"\n移動後會離開原資料夾；不刪除重複檔。相似與人物分組請先確認。\n同名檔會加上識別碼，不覆蓋既有檔案。\n這次成功的移動會取代上次復原紀錄。").setNegativeButton("取消",null).setPositiveButton("移動",(d,w)->{op().destination=target;op().pending=new ArrayList<>();for(Scanner.Item item:snapshot)if(!target.equals(item.path)){MoveRecord r=new MoveRecord();r.uri=item.uri;r.oldPath=item.path;r.oldName=item.name;r.newPath=target;r.newName=item.name;r.item=item;op().pending.add(r);}op().undoing=false;op().isDeleting=false;op().operationHasSuccess=false;op().operationMoved=op().operationFailed=0;op().fileBusy=true;backupJournal();updateSelection();requestWrite();}).show();
  }
  private void confirmDelete(){
-  if(selected.isEmpty()||fileBusy)return;
+  if(selected.isEmpty()||op().fileBusy)return;
   ArrayList<Scanner.Item> snapshot=new ArrayList<>(selected);
-  pendingDeletes=snapshot;
-  isDeleting=true;
-  fileBusy=true;
-  operationDeleted=operationDeleteFailed=0;
+  op().pendingDeletes=snapshot;
+  op().isDeleting=true;
+  op().fileBusy=true;
+  op().operationDeleted=op().operationDeleteFailed=0;
   updateSelection();
   requestDelete();
  }
  private void requestDelete(){
-  if(pendingDeletes==null||pendingDeletes.isEmpty()){
-   fileBusy=false;updateSelection();
-   status.setText("刪除完成 · 成功 "+operationDeleted+" · 失敗 "+operationDeleteFailed);
+  if(op().pendingDeletes==null||op().pendingDeletes.isEmpty()){
+   op().fileBusy=false;updateSelection();
+   status.setText("刪除完成 · 成功 "+op().operationDeleted+" · 失敗 "+op().operationDeleteFailed);
    render();
    return;
   }
-  fileWorker.execute(()->{
-   List<Scanner.Item> directList=new ArrayList<>(pendingDeletes);
-   List<Scanner.Item> needPermissionList=new ArrayList<>();
+  op().fileWorker.execute(()->{
+   java.util.List<Scanner.Item> directList=new java.util.ArrayList<>(op().pendingDeletes);
+   java.util.List<Scanner.Item> needPermissionList=new java.util.ArrayList<>();
    int directDeleted=0;
    for(Scanner.Item item:directList){
+    boolean exists = false;
+    try (android.database.Cursor c = getContentResolver().query(item.uri, new String[]{MediaStore.MediaColumns._ID}, null, null, null)) {
+        if (c != null && c.moveToFirst()) exists = true;
+    } catch(Exception e) {}
+    if (!exists) {
+        item.removed=true;
+        ui(()->selected.remove(item));
+        directDeleted++;
+        continue;
+    }
     try{
      int count=getContentResolver().delete(item.uri,null,null);
      if(count>0){
@@ -818,19 +858,17 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
      }else{
       needPermissionList.add(item);
      }
-    }catch(Exception e){
-     needPermissionList.add(item);
-    }
+    }catch(Exception e){needPermissionList.add(item);}
    }
-   final int dDeleted=directDeleted;
+   final int d=directDeleted;
    ui(()->{
-    operationDeleted+=dDeleted;
-    pendingDeletes=needPermissionList;
-    if(pendingDeletes.isEmpty()){
-     fileBusy=false;
+    op().operationDeleted+=d;
+    op().pendingDeletes=needPermissionList;
+    if(op().pendingDeletes.isEmpty()){
+     op().fileBusy=false;updateSelection();
+     clearOpState();
      saveScanCache(result);
-     updateSelection();
-     status.setText("刪除完成 · 成功 "+operationDeleted+" · 失敗 "+operationDeleteFailed);
+     status.setText("刪除完成 · 成功 "+op().operationDeleted+" · 失敗 "+op().operationDeleteFailed);
      render();
     }else{
      requestDeleteBatch();
@@ -841,39 +879,38 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
 
     private void saveOpState() {
         try {
-            JSONObject root = new JSONObject();
-            root.put("isDeleting", isDeleting);
-            root.put("undoing", undoing);
-            root.put("operationHasSuccess", operationHasSuccess);
-            root.put("operationMoved", operationMoved);
-            root.put("operationFailed", operationFailed);
-            root.put("operationDeleted", operationDeleted);
-            root.put("operationDeleteFailed", operationDeleteFailed);
-
-            if (pendingDeletes != null) {
-                JSONArray deletes = new JSONArray();
-                for (Scanner.Item item : pendingDeletes) deletes.put(item.uri.toString());
+            org.json.JSONObject root = new org.json.JSONObject();
+            root.put("isDeleting", op().isDeleting);
+            root.put("undoing", op().undoing);
+            root.put("operationHasSuccess", op().operationHasSuccess);
+            root.put("operationMoved", op().operationMoved);
+            root.put("operationFailed", op().operationFailed);
+            root.put("operationDeleted", op().operationDeleted);
+            root.put("operationDeleteFailed", op().operationDeleteFailed);
+            if (op().pendingDeletes != null && !op().pendingDeletes.isEmpty()) {
+                org.json.JSONArray deletes = new org.json.JSONArray();
+                for (Scanner.Item i : op().pendingDeletes) deletes.put(i.uri.toString());
                 root.put("pendingDeletes", deletes);
             }
-
-            if (pending != null) {
-                JSONArray moves = new JSONArray();
-                for (MoveRecord r : pending) {
-                    JSONObject mo = new JSONObject();
-                    mo.put("uri", r.uri.toString());
-                    if (r.oldPath != null) mo.put("oldPath", r.oldPath);
-                    if (r.oldName != null) mo.put("oldName", r.oldName);
-                    if (r.newPath != null) mo.put("newPath", r.newPath);
-                    if (r.newName != null) mo.put("newName", r.newName);
-                    moves.put(mo);
+            if (op().pending != null && !op().pending.isEmpty()) {
+                org.json.JSONArray moves = new org.json.JSONArray();
+                for (MoveRecord r : op().pending) {
+                    org.json.JSONObject o = new org.json.JSONObject();
+                    o.put("uri", r.uri.toString());
+                    if (r.oldPath != null) o.put("oldPath", r.oldPath);
+                    if (r.oldName != null) o.put("oldName", r.oldName);
+                    if (r.newPath != null) o.put("newPath", r.newPath);
+                    if (r.newName != null) o.put("newName", r.newName);
+                    moves.put(o);
                 }
                 root.put("pending", moves);
             }
-
-            File f = new File(getFilesDir(), "op-state.json");
-            try (java.io.FileOutputStream out = new java.io.FileOutputStream(f)) {
+            java.io.File tmp = new java.io.File(getFilesDir(), "op-state.tmp");
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
                 out.write(root.toString().getBytes("UTF-8"));
+                out.getFD().sync();
             }
+            tmp.renameTo(new java.io.File(getFilesDir(), "op-state.json"));
         } catch (Exception e) {}
     }
 
@@ -886,17 +923,17 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
             while ((n = in.read(b)) > 0) out.write(b, 0, n);
             JSONObject root = new JSONObject(out.toString("UTF-8"));
 
-            isDeleting = root.optBoolean("isDeleting", false);
-            undoing = root.optBoolean("undoing", false);
-            operationHasSuccess = root.optBoolean("operationHasSuccess", false);
-            operationMoved = root.optInt("operationMoved", 0);
-            operationFailed = root.optInt("operationFailed", 0);
-            operationDeleted = root.optInt("operationDeleted", 0);
-            operationDeleteFailed = root.optInt("operationDeleteFailed", 0);
+            op().isDeleting = root.optBoolean("op().isDeleting", false);
+            op().undoing = root.optBoolean("op().undoing", false);
+            op().operationHasSuccess = root.optBoolean("op().operationHasSuccess", false);
+            op().operationMoved = root.optInt("op().operationMoved", 0);
+            op().operationFailed = root.optInt("op().operationFailed", 0);
+            op().operationDeleted = root.optInt("op().operationDeleted", 0);
+            op().operationDeleteFailed = root.optInt("op().operationDeleteFailed", 0);
 
-            if (root.has("pendingDeletes")) {
-                pendingDeletes = new ArrayList<>();
-                JSONArray deletes = root.getJSONArray("pendingDeletes");
+            if (root.has("op().pendingDeletes")) {
+                op().pendingDeletes = new ArrayList<>();
+                JSONArray deletes = root.getJSONArray("op().pendingDeletes");
                 for (int i = 0; i < deletes.length(); i++) {
                     Scanner.Item item = new Scanner.Item();
                     item.uri = Uri.parse(deletes.getString(i));
@@ -904,20 +941,20 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
                     try (android.database.Cursor c = getContentResolver().query(item.uri, new String[]{MediaStore.MediaColumns._ID}, null, null, null)) {
                         if (c != null && c.moveToFirst()) exists = true;
                     } catch (Exception e) {}
-                    if (!exists) { operationDeleted++; continue; }
+                    if (!exists) { op().operationDeleted++; continue; }
                     if (result != null) {
                         for (Scanner.Item existing : result.all) {
                             if (existing.uri.equals(item.uri)) { item = existing; break; }
                         }
                     }
-                    pendingDeletes.add(item);
+                    op().pendingDeletes.add(item);
                 }
-                if(pendingDeletes.isEmpty()) { pendingDeletes = null; } else { fileBusy = true; }
+                if(op().pendingDeletes.isEmpty()) { op().pendingDeletes = null; } else { op().fileBusy = true; }
             }
 
-            if (root.has("pending")) {
-                pending = new ArrayList<>();
-                JSONArray moves = root.getJSONArray("pending");
+            if (root.has("op().pending")) {
+                op().pending = new ArrayList<>();
+                JSONArray moves = root.getJSONArray("op().pending");
                 for (int i = 0; i < moves.length(); i++) {
                     JSONObject mo = moves.getJSONObject(i);
                     MoveRecord r = new MoveRecord();
@@ -932,20 +969,20 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
                             exists = true;
                             String currentPath = c.getString(0);
                             if (r.newPath != null && currentPath != null && r.newPath.equals(currentPath)) {
-                                operationMoved++;
+                                op().operationMoved++;
                                 continue;
                             }
                         }
                     } catch (Exception e) {}
-                    if (!exists) { operationFailed++; continue; }
+                    if (!exists) { op().operationFailed++; continue; }
                     if (result != null) {
                         for (Scanner.Item existing : result.all) {
                             if (existing.uri.equals(r.uri)) { r.item = existing; break; }
                         }
                     }
-                    pending.add(r);
+                    op().pending.add(r);
                 }
-                if(pending.isEmpty()) { pending = null; } else { fileBusy = true; }
+                if(op().pending.isEmpty()) { op().pending = null; } else { op().fileBusy = true; }
             }
         } catch (Exception e) {}
     }
@@ -956,33 +993,33 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
     }
 
  private void requestDeleteBatch(){
-  if(pendingDeletes==null||pendingDeletes.isEmpty()){
-   fileBusy=false;
+  if(op().pendingDeletes==null||op().pendingDeletes.isEmpty()){
+   op().fileBusy=false;
    clearOpState();
    saveScanCache(result);
    updateSelection();
-   status.setText("刪除完成 · 成功 "+operationDeleted+" · 失敗 "+operationDeleteFailed);
+   status.setText("刪除完成 · 成功 "+op().operationDeleted+" · 失敗 "+op().operationDeleteFailed);
    render();
    return;
   }
   saveOpState();
   try{
    ArrayList<Uri> uris=new ArrayList<>();
-   for(int i=0;i<Math.min(100,pendingDeletes.size());i++)uris.add(pendingDeletes.get(i).uri);
+   for(int i=0;i<Math.min(100,op().pendingDeletes.size());i++)uris.add(op().pendingDeletes.get(i).uri);
    startIntentSenderForResult(MediaStore.createDeleteRequest(getContentResolver(),uris).getIntentSender(),52,null,0,0,0);
   }catch(Exception e){
-   status.setText("刪除已完成（直接刪除 "+operationDeleted+" 個，需要授權或失敗 "+pendingDeletes.size()+" 個）");
-   pendingDeletes=null;
-   fileBusy=false;
+   status.setText("刪除已完成（直接刪除 "+op().operationDeleted+" 個，需要授權或失敗 "+op().pendingDeletes.size()+" 個）");
+   op().pendingDeletes=null;
+   op().fileBusy=false;
    saveScanCache(result);
    updateSelection();
    render();
   }
  }
  private void finishMoveOperation(){
-  pending=null;fileBusy=false;
-  if(!undoing){
-   if(operationMoved==0)restoreJournalBackup();else clearJournalBackup();
+  op().pending=null;op().fileBusy=false;
+  if(!op().undoing){
+   if(op().operationMoved==0)restoreJournalBackup();else clearJournalBackup();
    saveScanCache(result);
   }else{
    result=null;selected.clear();clearThumbs();
@@ -991,73 +1028,88 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
   updateSelection();
   render();
  }
- private void requestWrite(){if(pending==null||pending.isEmpty()){
-  status.setText((undoing?"復原":"移動")+"完成 · 成功 "+operationMoved+" · 失敗 "+operationFailed+(undoing?"；請重新掃描更新分組。":"；可繼續勾選移到同一資料夾。"));
+ private void requestWrite(){if(op().pending==null||op().pending.isEmpty()){
+  status.setText((op().undoing?"復原":"移動")+"完成 · 成功 "+op().operationMoved+" · 失敗 "+op().operationFailed+(op().undoing?"；請重新掃描更新分組。":"；可繼續勾選移到同一資料夾。"));
   clearOpState();
   finishMoveOperation();
-  operationHasSuccess=false;operationMoved=operationFailed=0;
+  op().operationHasSuccess=false;op().operationMoved=op().operationFailed=0;
   return;
  }
   saveOpState();
-  try{ArrayList<Uri> uris=new ArrayList<>();for(int i=0;i<Math.min(100,pending.size());i++)uris.add(pending.get(i).uri);startIntentSenderForResult(MediaStore.createWriteRequest(getContentResolver(),uris).getIntentSender(),51,null,0,0,0);}catch(Exception e){status.setText("無法取得移動授權："+e.getMessage());finishMoveOperation();}}
+  try{ArrayList<Uri> uris=new ArrayList<>();for(int i=0;i<Math.min(100,op().pending.size());i++)uris.add(op().pending.get(i).uri);startIntentSenderForResult(MediaStore.createWriteRequest(getContentResolver(),uris).getIntentSender(),51,null,0,0,0);}catch(Exception e){status.setText("無法取得移動授權："+e.getMessage());finishMoveOperation();}}
  public void onActivityResult(int request,int response,Intent data){super.onActivityResult(request,response,data);
   if(request==51){if(response==RESULT_OK)applyBatch();else{
-   status.setText("未獲授權 · 已完成：成功 "+operationMoved+" · 失敗 "+operationFailed+"。未授權之檔案已保留可重試。");
-   pending=null;
+   status.setText("未獲授權 · 已完成：成功 "+op().operationMoved+" · 失敗 "+op().operationFailed+"。未授權之檔案已保留可重試。");
+   op().pending=null;
    clearOpState();
    finishMoveOperation();
-   operationHasSuccess=false;operationMoved=operationFailed=0;
+   op().operationHasSuccess=false;op().operationMoved=op().operationFailed=0;
   }}
   else if(request==52){if(response==RESULT_OK)applyDeleteBatch();else{
-   status.setText("未獲刪除授權 · 已完成：成功 "+operationDeleted+" · 失敗 "+operationDeleteFailed+"。未授權之檔案已保留。");
-   if(operationDeleted>0)saveScanCache(result);
-   pendingDeletes=null;
+   status.setText("未獲刪除授權 · 已完成：成功 "+op().operationDeleted+" · 失敗 "+op().operationDeleteFailed+"。未授權之檔案已保留。");
+   if(op().operationDeleted>0)saveScanCache(result);
+   op().pendingDeletes=null;
    clearOpState();
-   fileBusy=false;updateSelection();render();
+   op().fileBusy=false;updateSelection();render();
   }}
  }
- private int operationDeleted=0,operationDeleteFailed=0;
+
  private void applyDeleteBatch(){
-  if(pendingDeletes==null)return;
-  final List<Scanner.Item> batch=new ArrayList<>(pendingDeletes.subList(0,Math.min(100,pendingDeletes.size())));
+  if(op().pendingDeletes==null)return;
+  final List<Scanner.Item> batch=new ArrayList<>(op().pendingDeletes.subList(0,Math.min(100,op().pendingDeletes.size())));
   for(Scanner.Item item:batch){item.removed=true;selected.remove(item);}
-  pendingDeletes.removeAll(batch);
-  operationDeleted+=batch.size();
-  if(pendingDeletes!=null&&!pendingDeletes.isEmpty()){
+  op().pendingDeletes.removeAll(batch);
+  op().operationDeleted+=batch.size();
+  if(op().pendingDeletes!=null&&!op().pendingDeletes.isEmpty()){
    requestDeleteBatch();
   }else{
-   pendingDeletes=null;
-   fileBusy=false;
+   op().pendingDeletes=null;
+   op().fileBusy=false;
    clearOpState();
    saveScanCache(result);
-   status.setText("刪除完成 · 成功 "+operationDeleted+" · 失敗 "+operationDeleteFailed);
+   status.setText("刪除完成 · 成功 "+op().operationDeleted+" · 失敗 "+op().operationDeleteFailed);
    render();
   }
  }
- private boolean operationHasSuccess=false;private int operationMoved=0,operationFailed=0;
+
  private void applyBatch(){
-  if(pending==null)return;final List<MoveRecord> batch=new ArrayList<>(pending.subList(0,Math.min(100,pending.size())));
-  fileWorker.execute(()->{int moved=0,failed=0;List<MoveRecord> successfulRecords=new ArrayList<>();for(MoveRecord r:batch){if(dead)break;try{
-    if(r.newPath==null||r.newPath.isEmpty()||(!undoing&&(r.oldPath==null||r.oldPath.isEmpty())))throw new IOException("原資料夾紀錄不完整");String finalName=collision(r.uri,r.newPath,r.newName)?uniqueName(r.newName):r.newName;
-    ContentValues values=new ContentValues();values.put(MediaStore.MediaColumns.RELATIVE_PATH,r.newPath);values.put(MediaStore.MediaColumns.DISPLAY_NAME,finalName);
-    if(!undoing){appendJournalPending(r);}
-    int updated=getContentResolver().update(r.uri,values,null,null);if(updated!=1)throw new IOException("檔案更新失敗");moved++;
-    if(!undoing){if(!operationHasSuccess){operationHasSuccess=true;}}
-    if(undoing){removeJournal(r.uri);}
+  if(op().pending==null)return;final java.util.List<MoveRecord> batch=new java.util.ArrayList<>(op().pending.subList(0,Math.min(100,op().pending.size())));
+  op().fileWorker.execute(()->{int moved=0,failed=0;java.util.List<MoveRecord> successfulRecords=new java.util.ArrayList<>();for(MoveRecord r:batch){try{
+    if(r.newPath==null||r.newPath.isEmpty()||(!op().undoing&&(r.oldPath==null||r.oldPath.isEmpty())))throw new java.io.IOException("原資料夾紀錄不完整");
+
+    boolean alreadyMoved = false;
+    try (android.database.Cursor c = getContentResolver().query(r.uri, new String[]{MediaStore.MediaColumns.RELATIVE_PATH}, null, null, null)) {
+        if (c != null && c.moveToFirst()) {
+            String currentPath = c.getString(0);
+            if (currentPath != null && currentPath.equals(r.newPath)) {
+                alreadyMoved = true;
+            }
+        } else {
+             throw new java.io.IOException("檔案不存在");
+        }
+    }
+    if (alreadyMoved) { moved++; successfulRecords.add(r); if(r.item!=null)r.item.removed=true; continue; }
+
+    String finalName=collision(r.uri,r.newPath,r.newName)?uniqueName(r.newName):r.newName;
+    android.content.ContentValues values=new android.content.ContentValues();values.put(MediaStore.MediaColumns.RELATIVE_PATH,r.newPath);values.put(MediaStore.MediaColumns.DISPLAY_NAME,finalName);
+    if(!op().undoing){appendJournalPending(r);}
+    int updated=getContentResolver().update(r.uri,values,null,null);if(updated!=1)throw new java.io.IOException("檔案更新失敗");moved++;
+    if(!op().undoing){if(!op().operationHasSuccess){op().operationHasSuccess=true;}}
+    if(op().undoing){removeJournal(r.uri);}
     if(r.item!=null){r.item.removed=true;}
     successfulRecords.add(r);
    }catch(Exception e){failed++;}}
-   final int m=moved,f=failed;ui(()->{operationMoved+=m;operationFailed+=f;
-    if(!undoing && !successfulRecords.isEmpty()) {
+   final int m=moved,f=failed;ui(()->{op().operationMoved+=m;op().operationFailed+=f;
+    if(!op().undoing && !successfulRecords.isEmpty()) {
      try { promotePendingJournal(); } catch(Exception e){}
     }
-    if(pending!=null)pending.removeAll(batch);
-    if(!undoing)for(MoveRecord r:successfulRecords)if(r.item!=null)selected.remove(r.item);
-    if(pending!=null&&!pending.isEmpty()){status.setText("已處理 "+(operationMoved+operationFailed)+" 個（成功 "+operationMoved+"），繼續下一批…");requestWrite();}
+    if(op().pending!=null)op().pending.removeAll(batch);
+    if(!op().undoing)for(MoveRecord r:successfulRecords)if(r.item!=null)selected.remove(r.item);
+    if(op().pending!=null&&!op().pending.isEmpty()){status.setText("已處理 "+(op().operationMoved+op().operationFailed)+" 個（成功 "+op().operationMoved+"），繼續下一批…");requestWrite();}
     else{
-     status.setText((undoing?"復原":"移動")+"完成 · 成功 "+operationMoved+" · 失敗 "+operationFailed+(undoing?"；請重新掃描更新分組。":"；可繼續勾選移到同一資料夾。"));
+     status.setText((op().undoing?"復原":"移動")+"完成 · 成功 "+op().operationMoved+" · 失敗 "+op().operationFailed+(op().undoing?"；請重新掃描更新分組。":"；可繼續勾選移到同一資料夾。"));
      finishMoveOperation();
-     operationHasSuccess=false;operationMoved=operationFailed=0;
+     op().operationHasSuccess=false;op().operationMoved=op().operationFailed=0;
     }});
   });
  }
@@ -1080,37 +1132,40 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
  private synchronized JSONArray readJournalPending()throws Exception{if(!journalPending().exists())return new JSONArray();try(InputStream in=new FileInputStream(journalPending())){ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[4096];int n;while((n=in.read(b))>0)out.write(b,0,n);return new JSONArray(out.toString("UTF-8"));}}
  private synchronized void writeJournal(JSONArray a)throws Exception{File tmp=new File(getFilesDir(),"move-journal.tmp");try(FileOutputStream out=new FileOutputStream(tmp)){out.write(a.toString().getBytes("UTF-8"));out.getFD().sync();}if(!tmp.renameTo(journal()))throw new IOException("復原紀錄儲存失敗");}
  private synchronized void writeJournalPending(JSONArray a)throws Exception{File tmp=new File(getFilesDir(),"move-journal-pending.tmp");try(FileOutputStream out=new FileOutputStream(tmp)){out.write(a.toString().getBytes("UTF-8"));out.getFD().sync();}if(!tmp.renameTo(journalPending()))throw new IOException("暫存復原紀錄儲存失敗");}
- private synchronized void appendJournalPending(MoveRecord r)throws Exception{JSONArray a=readJournalPending();JSONObject o=new JSONObject();o.put("uri",r.uri.toString());o.put("path",r.oldPath);o.put("name",r.oldName);a.put(o);writeJournalPending(a);}
+ private synchronized void appendJournalPending(MoveRecord r)throws Exception{org.json.JSONArray a=readJournalPending();org.json.JSONObject o=new org.json.JSONObject();o.put("uri",r.uri.toString());o.put("path",r.oldPath);o.put("name",r.oldName);o.put("newPath", r.newPath);o.put("newName", r.newName);a.put(o);writeJournalPending(a);}
  private synchronized void promotePendingJournal()throws Exception{
-  JSONArray pending = readJournalPending();
+  org.json.JSONArray pending = readJournalPending();
   if (pending.length() > 0) {
-   JSONArray valid = new JSONArray();
+   org.json.JSONArray valid = new org.json.JSONArray();
    for (int i = 0; i < pending.length(); i++) {
-       JSONObject o = pending.getJSONObject(i);
+       org.json.JSONObject o = pending.getJSONObject(i);
        Uri uri = Uri.parse(o.getString("uri"));
-       String expectedPath = o.optString("path", null); // We wait for it to have reached its goal, although pending journal initially records oldPath, we actually need to check if the file moved.
-       // Actually, the requirement says "verify actual file state then commit journal". If we move a file to newPath, we should check if its RELATIVE_PATH matches the expected target.
-       // The pending record records the `oldPath` to undo. The pending move record doesn't record `newPath` explicitly in json, but it is implicitly the operation target.
-       // The easiest way is to check if it has moved from `oldPath`.
-       try (android.database.Cursor c = getContentResolver().query(uri, new String[]{MediaStore.MediaColumns.RELATIVE_PATH}, null, null, null)) {
+       String expectedPath = o.optString("newPath", null);
+       String expectedName = o.optString("newName", null);
+
+       if (expectedPath == null || expectedName == null) continue;
+
+       try (android.database.Cursor c = getContentResolver().query(uri, new String[]{MediaStore.MediaColumns.RELATIVE_PATH, MediaStore.MediaColumns.DISPLAY_NAME}, null, null, null)) {
            if (c != null && c.moveToFirst()) {
                String currentPath = c.getString(0);
-               if (expectedPath != null && currentPath != null && !expectedPath.equals(currentPath)) {
+               String currentName = c.getString(1);
+               if (currentPath != null && currentName != null && expectedPath.equals(currentPath) && currentName.startsWith(expectedName)) {
                    valid.put(o);
                }
            }
        } catch (Exception e) {}
    }
    if (valid.length() > 0) {
-       writeJournal(valid);
-   } else {
-       File tmp = new File(getFilesDir(), "move-journal-pending.json");
-       if (tmp.exists()) tmp.delete();
+       org.json.JSONArray existing = readJournal();
+       for(int i=0;i<valid.length();i++) existing.put(valid.getJSONObject(i));
+       writeJournal(existing);
    }
+   java.io.File tmp = new java.io.File(getFilesDir(), "move-journal-pending.json");
+   if (tmp.exists()) tmp.delete();
   }
  }
  private synchronized void removeJournal(Uri uri)throws Exception{JSONArray a=readJournal(),next=new JSONArray();for(int i=0;i<a.length();i++)if(!a.getJSONObject(i).getString("uri").equals(uri.toString()))next.put(a.getJSONObject(i));writeJournal(next);}
- private void undo(){if(fileBusy||busy)return;try{JSONArray a=readJournal();if(a.length()==0){status.setText("沒有可復原的移動紀錄。");return;}new androidx.appcompat.app.AlertDialog.Builder(this).setTitle("復原上次移動").setMessage("將 "+a.length()+" 個紀錄移回原資料夾。同名檔會加識別碼；已不存在的檔案會列為失敗。").setNegativeButton("取消",null).setPositiveButton("復原",(d,w)->{try{pending=new ArrayList<>();for(int i=0;i<a.length();i++){JSONObject o=a.getJSONObject(i);MoveRecord r=new MoveRecord();r.uri=Uri.parse(o.getString("uri"));r.newPath=o.getString("path");r.newName=o.getString("name");pending.add(r);}undoing=true;operationHasSuccess=false;operationMoved=operationFailed=0;fileBusy=true;updateSelection();requestWrite();}catch(Exception e){status.setText("復原紀錄無法讀取。");}}).show();}catch(Exception e){status.setText("復原紀錄無法讀取。");}}
+ private void undo(){if(op().fileBusy||busy)return;try{JSONArray a=readJournal();if(a.length()==0){status.setText("沒有可復原的移動紀錄。");return;}new androidx.appcompat.app.AlertDialog.Builder(this).setTitle("復原上次移動").setMessage("將 "+a.length()+" 個紀錄移回原資料夾。同名檔會加識別碼；已不存在的檔案會列為失敗。").setNegativeButton("取消",null).setPositiveButton("復原",(d,w)->{try{op().pending=new ArrayList<>();for(int i=0;i<a.length();i++){JSONObject o=a.getJSONObject(i);MoveRecord r=new MoveRecord();r.uri=Uri.parse(o.getString("uri"));r.newPath=o.getString("path");r.newName=o.getString("name");op().pending.add(r);}op().undoing=true;op().operationHasSuccess=false;op().operationMoved=op().operationFailed=0;op().fileBusy=true;updateSelection();requestWrite();}catch(Exception e){status.setText("復原紀錄無法讀取。");}}).show();}catch(Exception e){status.setText("復原紀錄無法讀取。");}}
  private void help(){new androidx.appcompat.app.AlertDialog.Builder(this).setTitle("使用說明與隱私").setMessage("1. 授權所有照片與影片後開始掃描。可篩選來源資料夾，或對全相簿掃描。\n2. 重複採 SHA-256；相似照片使用感知雜湊、色彩與比例，影片抽取 7 個畫面。\n3. 人物在手機內用 MobileFaceNet 比對抽樣人臉；分數不是準確率。正面清楚人臉效果較好。\n4. 掃描過程中即可即時勾選檔案進行『移到此資料夾』或『刪除』。\n5. 不自動刪除、不上傳、不在背景持續監控。\n6. 復原只保留上次移動批次。清快取只移除本程式縮圖，不動原照片／影片。").setPositiveButton("關閉",null).show();}
  private void clearThumbs(){resultGeneration = ScanService.clearCacheAsync(this);}
  private File cacheFile(){return new File(getFilesDir(),"scan-cache.json");}
@@ -1120,9 +1175,17 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
  }
  private Scanner.Result loadScanCache(){
   if(!cacheFile().exists())return null;
-  try(InputStream in=new FileInputStream(cacheFile())){
-   ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[4096];int n;while((n=in.read(b))>0)out.write(b,0,n);
-   JSONObject root=new JSONObject(out.toString("UTF-8"));
+  try(java.io.InputStream in=new java.io.FileInputStream(cacheFile())){
+   java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();byte[] b=new byte[4096];int n;while((n=in.read(b))>0)out.write(b,0,n);
+   org.json.JSONObject root=new org.json.JSONObject(out.toString("UTF-8"));
+   Scanner.Result res=new Scanner.Result();org.json.JSONArray all=root.getJSONArray("all");
+   for(int i=0;i<all.length();i++){
+    org.json.JSONObject o=all.getJSONObject(i);Scanner.Item item=new Scanner.Item();item.uri=Uri.parse(o.getString("uri"));item.name=o.optString("name","");item.mime=o.optString("mime",null);item.path=o.optString("path","");item.size=o.optLong("size",0);item.duration=o.optLong("duration",0);item.video=o.optBoolean("video",false);item.removed=o.optBoolean("removed",false);
+    if(o.has("thumb"))item.thumb=new java.io.File(o.getString("thumb"));res.all.add(item);
+   }
+   res.exact.addAll(jsonToGroups(root.getJSONArray("exact"),res.all));res.similar.addAll(jsonToGroups(root.getJSONArray("similar"),res.all));res.people.addAll(jsonToGroups(root.getJSONArray("people"),res.all));
+   res.unreadable=root.optInt("unreadable",0);res.faceFailures=root.optInt("faceFailures",0);res.faceError=root.optString("faceError","");
+
    if(root.has("generation")) {
        long cacheGen = root.getLong("generation");
        if(ScanService.getGeneration() == 0) {
@@ -1131,13 +1194,6 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
            return null;
        }
    }
-   Scanner.Result res=new Scanner.Result();JSONArray all=root.getJSONArray("all");
-   for(int i=0;i<all.length();i++){
-    JSONObject o=all.getJSONObject(i);Scanner.Item item=new Scanner.Item();item.uri=Uri.parse(o.getString("uri"));item.name=o.optString("name","");item.mime=o.optString("mime",null);item.path=o.optString("path","");item.size=o.optLong("size",0);item.duration=o.optLong("duration",0);item.video=o.optBoolean("video",false);item.removed=o.optBoolean("removed",false);
-    if(o.has("thumb"))item.thumb=new File(o.getString("thumb"));res.all.add(item);
-   }
-   res.exact.addAll(jsonToGroups(root.getJSONArray("exact"),res.all));res.similar.addAll(jsonToGroups(root.getJSONArray("similar"),res.all));res.people.addAll(jsonToGroups(root.getJSONArray("people"),res.all));
-   res.unreadable=root.optInt("unreadable",0);res.faceFailures=root.optInt("faceFailures",0);res.faceError=root.optString("faceError","");
    return res;
   }catch(Exception e){return null;}
  }
@@ -1164,7 +1220,6 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
  protected void onDestroy(){
   dead=true;
   ScanService.removeListener(this);
-  fileWorker.shutdownNow();
-  super.onDestroy();
+    super.onDestroy();
  }
 }
