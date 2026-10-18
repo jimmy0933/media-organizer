@@ -447,7 +447,6 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
          }
      }
  }
- }
  private class ItemAdapter extends androidx.recyclerview.widget.RecyclerView.Adapter<androidx.recyclerview.widget.RecyclerView.ViewHolder> {
      List<ListItem> data = new ArrayList<>();
      void update(List<ListItem> newData) {
