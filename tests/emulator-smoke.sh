@@ -5,62 +5,51 @@ API_LEVEL="$1"
 DIAG_DIR="dist/diagnostics"
 mkdir -p "$DIAG_DIR"
 
-# Trap to capture diagnostics on script exit/error
 capture_diagnostics() {
     local exit_code=$?
     echo "--- EXIT TRAP: Capturing diagnostics (Exit code: $exit_code) ---"
-
-    # Try to capture full logcat
-    timeout 10s adb logcat -d > "$DIAG_DIR/logcat_full_api${API_LEVEL}.txt" || true
-
-    # Try to capture screenshot
-    timeout 10s adb shell screencap -p /sdcard/screen.png || true
-    timeout 10s adb pull /sdcard/screen.png "$DIAG_DIR/screen_api${API_LEVEL}.png" || true
-
-    # Try to capture UI hierarchy
-    timeout 10s adb shell dumpsys window > "$DIAG_DIR/dumpsys_window_api${API_LEVEL}.txt" || true
-
-    # Try to capture the app process state specifically
-    timeout 10s adb shell dumpsys activity top > "$DIAG_DIR/dumpsys_activity_top_api${API_LEVEL}.txt" || true
-
+    timeout 10s adb -s emulator-5554 logcat -d > "$DIAG_DIR/logcat_full_api${API_LEVEL}.txt" || true
+    timeout 10s adb -s emulator-5554 shell screencap -p /sdcard/screen.png || true
+    timeout 10s adb -s emulator-5554 pull /sdcard/screen.png "$DIAG_DIR/screen_api${API_LEVEL}.png" || true
+    timeout 10s adb -s emulator-5554 shell dumpsys window > "$DIAG_DIR/dumpsys_window_api${API_LEVEL}.txt" || true
+    timeout 10s adb -s emulator-5554 shell dumpsys activity top > "$DIAG_DIR/dumpsys_activity_top_api${API_LEVEL}.txt" || true
     echo "Diagnostics capture complete."
-    exit "$exit_code"
 }
 trap capture_diagnostics EXIT ERR
 
+export PATH=$PATH:$ANDROID_HOME/emulator
 echo "KVM check:"
 emulator -accel-check || true
 
-# Dismiss lock screen
-timeout 10s adb shell input keyevent 82 || true
-
-# Install
-timeout 60s adb install -r dist/Media-Organizer.apk
+timeout 10s adb -s emulator-5554 shell input keyevent 82 || true
+timeout 60s adb -s emulator-5554 install -r dist/Media-Organizer.apk
 
 CRASH_FOUND=false
 
 for run_idx in {1..5}; do
    echo "--- Cold start run $run_idx ---"
-   adb logcat -c || true
-   adb shell am force-stop tw.mediaorganizer || true
+   adb -s emulator-5554 logcat -c || true
+   adb -s emulator-5554 shell am force-stop tw.mediaorganizer || true
+   sleep 2
 
-   timeout 30s adb shell am start -W tw.mediaorganizer/.MainActivity
+   timeout 30s adb -s emulator-5554 shell am start -W tw.mediaorganizer/.MainActivity
+   sleep 30
 
-   sleep 10
-
-   # Check if process is alive, trim CR/LF
-   PID=$(adb shell pidof tw.mediaorganizer | tr -d '\r\n' || true)
-
+   PID=$(adb -s emulator-5554 shell pidof tw.mediaorganizer | tr -d '
+' | awk '{print $1}' || true)
    if [ -z "$PID" ]; then
      echo "Process tw.mediaorganizer is not running on run $run_idx!"
      CRASH_FOUND=true
      break
    fi
 
-   sleep 10
+   adb -s emulator-5554 shell input tap 900 150 || true
+   sleep 5
+   adb -s emulator-5554 shell input keyevent 4 # BACK
+   sleep 5
 
-   adb logcat -d --pid="$PID" > "$DIAG_DIR/logcat_run_${run_idx}_api${API_LEVEL}.txt" || true
-   CRASH=$(adb logcat -d --pid="$PID" | grep -E "FATAL EXCEPTION" || true)
+   adb -s emulator-5554 logcat -d --pid="$PID" > "$DIAG_DIR/logcat_run_${run_idx}_api${API_LEVEL}.txt" || true
+   CRASH=$(adb -s emulator-5554 logcat -d --pid="$PID" | grep -E "FATAL EXCEPTION" || true)
 
    if [[ -n "$CRASH" ]]; then
       echo "Crash detected on run $run_idx: $CRASH"
@@ -68,9 +57,11 @@ for run_idx in {1..5}; do
       break
    fi
 
-   # Navigate back / background return testing
-   adb shell input keyevent 4 # BACK
-   sleep 2
+   adb -s emulator-5554 shell input keyevent 3 # HOME
+   sleep 5
+   adb -s emulator-5554 shell input keyevent 4 # BACK to make sure we do not stick
+   timeout 30s adb -s emulator-5554 shell am start -W tw.mediaorganizer/.MainActivity
+   sleep 5
 done
 
 if [[ "$CRASH_FOUND" == "true" ]]; then
