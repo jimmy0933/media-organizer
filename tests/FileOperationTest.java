@@ -24,7 +24,7 @@ public class FileOperationTest {
             state.pending = new java.util.ArrayList<>();
             state.pending.add(move);
 
-            OperationController op = OperationController.getInstance();
+            OperationState state = new OperationState();
             op.isDeleting = state.isDeleting;
             op.operationMoved = state.operationMoved;
             op.pendingDeletes = state.pendingDeletes;
@@ -32,10 +32,10 @@ public class FileOperationTest {
 
             // This test is headless, so we bypass actual SQLite cursor verification via mock / logic testing.
             // Since OperationState.load does not have context, we must test its JSON fields.
-            op.state.save(dir, op);
+            OperationController op = OperationController.getInstance(); op.state = state; state.save(dir, op);
 
             OperationController loadedOp = new OperationController();
-            loadedOp.state.load(dir, loadedOp);
+            loadedOp.load(dir, loadedOp);
 
             if(!loadedOp.isDeleting) throw new RuntimeException("Missing isDeleting property");
             if(loadedOp.operationMoved != 10) throw new RuntimeException("Missing operationMoved property");
