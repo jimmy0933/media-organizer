@@ -1,59 +1,55 @@
 package tw.mediaorganizer;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.File;
+import android.net.Uri;
 
 public class FileOperationTest {
     public static void testOpStateSerialization() {
         try {
-            // Test missing file
-            File f = new File("test-journal.json");
-            if(f.exists()) f.delete();
+            File dir = new File(".");
+            OperationState state = new OperationState();
+            state.isDeleting = true;
+            state.operationMoved = 10;
+            state.pendingDeletes = new java.util.ArrayList<>();
+            Scanner.Item item = new Scanner.Item();
+            item.uri = Uri.parse("content://12345");
+            state.pendingDeletes.add(item);
 
-            // Mock read logic
-            String result = "";
-            if(f.exists()){
-                try(InputStream in=new FileInputStream(f)){
-                    ByteArrayOutputStream out=new ByteArrayOutputStream();
-                    byte[] b=new byte[4096];
-                    int n;
-                    while((n=in.read(b))>0)out.write(b,0,n);
-                    result = out.toString("UTF-8");
-                }
-            } else {
-                result = "[]";
-            }
-            if(!result.equals("[]")) throw new RuntimeException("Expected []");
+            MainActivity.MoveRecord move = new MainActivity.MoveRecord();
+            move.uri = Uri.parse("content://67890");
+            move.oldPath = "DCIM/";
+            move.oldName = "photo.jpg";
+            move.newPath = "Albums/";
+            move.newName = "photo.jpg";
+            state.pending = new java.util.ArrayList<>();
+            state.pending.add(move);
 
-            // Test writing logic
-            String expected = "[{\"uri\":\"content://123\",\"path\":\"Pictures/\",\"name\":\"test.jpg\"}]";
-            try(FileOutputStream out = new FileOutputStream(f)){
-                out.write(expected.getBytes("UTF-8"));
-                out.getFD().sync();
-            }
+            OperationState state = new OperationState();
+            op.isDeleting = state.isDeleting;
+            op.operationMoved = state.operationMoved;
+            op.pendingDeletes = state.pendingDeletes;
+            op.pending = state.pending;
 
-            // Test reading logic again
-            if(f.exists()){
-                try(InputStream in=new FileInputStream(f)){
-                    ByteArrayOutputStream out=new ByteArrayOutputStream();
-                    byte[] b=new byte[4096];
-                    int n;
-                    while((n=in.read(b))>0)out.write(b,0,n);
-                    result = out.toString("UTF-8");
-                }
-            }
-            if(!result.equals(expected)) throw new RuntimeException("Expected " + expected + ", got " + result);
+            // This test is headless, so we bypass actual SQLite cursor verification via mock / logic testing.
+            // Since OperationState.load does not have context, we must test its JSON fields.
+            OperationController op = OperationController.getInstance(); op.state = state; state.save(dir, op);
 
-            System.out.println("PASS op-state.json and move-journal-pending.json integration checks passed structurally in headless environment.");
+            OperationController loadedOp = new OperationController();
+            loadedOp.load(dir, loadedOp);
+
+            if(!loadedOp.isDeleting) throw new RuntimeException("Missing isDeleting property");
+            if(loadedOp.operationMoved != 10) throw new RuntimeException("Missing operationMoved property");
+            if(loadedOp.pendingDeletes == null || loadedOp.pendingDeletes.isEmpty()) throw new RuntimeException("Missing pendingDeletes property");
+            if(loadedOp.pending == null || loadedOp.pending.isEmpty()) throw new RuntimeException("Missing pending property");
+            if(!loadedOp.pending.get(0).oldPath.equals("DCIM/")) throw new RuntimeException("Missing oldPath property");
+
+            new File(dir, "op-state.json").delete();
+            System.out.println("PASS op-state.json integration checks passed structurally in headless environment.");
         } catch (Exception e) {
             e.printStackTrace();
-            System.exit(1);
+            throw new RuntimeException("Test failed");
         }
     }
-
     public static void main(String[] args) {
         testOpStateSerialization();
     }
