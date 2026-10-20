@@ -29,6 +29,7 @@ public class FileOperationTest {
             op.state.operationMoved = state.operationMoved;
             op.state.pendingDeletes = state.pendingDeletes;
             op.state.pending = state.pending;
+            op.state.destination = "DCIM/";
 
             op.state.save(dir, op);
 
@@ -40,6 +41,11 @@ public class FileOperationTest {
             if(loadedOp.state.pendingDeletes == null || loadedOp.state.pendingDeletes.isEmpty()) throw new RuntimeException("Missing pendingDeletes property");
             if(loadedOp.state.pending == null || loadedOp.state.pending.isEmpty()) throw new RuntimeException("Missing pending property");
             if(!loadedOp.state.pending.get(0).oldPath.equals("DCIM/")) throw new RuntimeException("Missing oldPath property");
+            if(!loadedOp.state.pending.get(0).oldName.equals("photo.jpg")) throw new RuntimeException("Missing oldName property");
+            if(!loadedOp.state.pending.get(0).newPath.equals("Albums/")) throw new RuntimeException("Missing newPath property");
+            if(!loadedOp.state.pending.get(0).newName.equals("photo.jpg")) throw new RuntimeException("Missing newName property");
+            if(loadedOp.state.destination == null || !loadedOp.state.destination.equals("DCIM/")) throw new RuntimeException("Missing destination property");
+
 
             new File(dir, "op-state.json").delete();
             System.out.println("PASS op-state.json integration checks passed structurally in headless environment.");
