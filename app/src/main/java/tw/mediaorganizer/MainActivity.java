@@ -99,6 +99,8 @@ public class MainActivity extends AppCompatActivity implements ScanService.ScanL
   TextView title=text("相簿整理員",24);title.setTypeface(null,1);headerTitles.addView(title);
   header.addView(headerTitles,new LinearLayout.LayoutParams(0,-2,1));
   ImageView settingsBtn = new ImageView(this);
+  settingsBtn.setId(R.id.btn_settings);
+  settingsBtn.setContentDescription(getString(R.string.desc_settings));
   settingsBtn.setImageResource(R.drawable.ic_settings);
   settingsBtn.setPadding(dp(12), dp(12), dp(12), dp(12));
   android.util.TypedValue outValue = new android.util.TypedValue();
@@ -655,6 +657,8 @@ public int getItemCount() { return data.size(); }
   header.setGravity(Gravity.CENTER_VERTICAL);
   header.setPadding(0, 0, 0, dp(24));
   ImageView backBtn = new ImageView(this);
+  backBtn.setId(R.id.btn_back);
+  backBtn.setContentDescription(getString(R.string.desc_back));
   backBtn.setImageResource(R.drawable.ic_back);
   backBtn.setPadding(dp(12), dp(12), dp(12), dp(12));
   android.util.TypedValue outValueBack = new android.util.TypedValue();
