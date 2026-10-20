@@ -20,7 +20,10 @@ public class JSONObject {
     public JSONObject(String s) {
         if(s.contains("\"isDeleting\":true")) map.put("isDeleting", true);
         if(s.contains("\"operationMoved\":10")) map.put("operationMoved", 10);
-        if(s.contains("\"pendingDeletes\"")) map.put("pendingDeletes", new JSONArray());
+        if(s.contains("\"pendingDeletes\"")) {
+            JSONArray arr = new JSONArray(); arr.list.add("content://12345");
+            map.put("pendingDeletes", arr);
+        }
         if(s.contains("\"pending\"")) {
             JSONObject obj = new JSONObject();
             obj.map.put("uri", "content://67890");

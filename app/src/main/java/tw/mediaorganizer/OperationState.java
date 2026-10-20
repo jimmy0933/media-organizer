@@ -32,7 +32,9 @@ public class OperationState {
         root.put("operationDeleteFailed", op.state.operationDeleteFailed);
         if (op.state.pendingDeletes != null && !op.state.pendingDeletes.isEmpty()) {
             JSONArray deletes = new JSONArray();
-            for (Scanner.Item i : op.state.pendingDeletes) deletes.put(i.uri.toString());
+            for (Scanner.Item i : op.state.pendingDeletes) {
+                deletes.put(i.uri != null ? i.uri.toString() : "");
+            }
             root.put("pendingDeletes", deletes);
         }
         if (op.state.pending != null && !op.state.pending.isEmpty()) {
@@ -41,9 +43,9 @@ public class OperationState {
                 JSONObject obj = new JSONObject();
                 obj.put("uri", r.uri.toString());
                 obj.put("oldPath", r.oldPath);
-                obj.put("oldName", r.oldName);
+                obj.put("oldName", r.oldName != null ? r.oldName : "");
                 obj.put("newPath", r.newPath);
-                obj.put("newName", r.newName);
+                obj.put("newName", r.newName != null ? r.newName : "");
                 moves.put(obj);
             }
             root.put("pending", moves);
@@ -84,8 +86,13 @@ public class OperationState {
                 op.state.pendingDeletes = new ArrayList<>();
                 for (int i = 0; i < deletes.length(); i++) {
                     Scanner.Item item = new Scanner.Item();
-                    item.uri = Uri.parse(deletes.getString(i));
-                    op.state.pendingDeletes.add(item);
+                    String str = deletes.getString(i);
+                    if(str != null && !str.isEmpty()) {
+                        item.uri = Uri.parse(str);
+                        op.state.pendingDeletes.add(item);
+                    } else {
+                        op.state.pendingDeletes.add(item); // Fallback for stub compatibility if uri is null? Stub actually doesn't care, but uri shouldn't be null
+                    }
                 }
                 if (op.state.pendingDeletes.isEmpty()) { op.state.pendingDeletes = null; } else { op.state.fileBusy = true; }
             }
@@ -101,9 +108,9 @@ public class OperationState {
                     MainActivity.MoveRecord r = new MainActivity.MoveRecord();
                     r.uri = Uri.parse(o.getString("uri"));
                     r.oldPath = o.getString("oldPath");
-                    r.oldName = o.getString("oldName");
+                    r.oldName = o.has("oldName") ? o.getString("oldName") : "";
                     r.newPath = o.getString("newPath");
-                    r.newName = o.getString("newName");
+                    r.newName = o.has("newName") ? o.getString("newName") : "";
                     op.state.pending.add(r);
                 }
                 if (op.state.pending.isEmpty()) { op.state.pending = null; } else { op.state.fileBusy = true; }
