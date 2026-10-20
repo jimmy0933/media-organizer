@@ -23,6 +23,7 @@ public class OperationState {
         File temp = new File(dir, "op-state-temp.json");
         File f = new File(dir, "op-state.json");
         JSONObject root = new JSONObject();
+        root.put("destination", op.state.destination != null ? op.state.destination : "");
         root.put("isDeleting", op.state.isDeleting);
         root.put("undoing", op.state.undoing);
         root.put("operationHasSuccess", op.state.operationHasSuccess);
@@ -70,6 +71,8 @@ public class OperationState {
             JSONObject root = new JSONObject(out.toString("UTF-8"));
 
             // Upgrade/legacy fallback support
+            op.state.destination = root.optString("destination", root.optString("op().destination", null));
+            if (op.state.destination != null && op.state.destination.isEmpty()) op.state.destination = null;
             op.state.isDeleting = root.optBoolean("isDeleting", root.optBoolean("op().isDeleting", false));
             op.state.undoing = root.optBoolean("undoing", root.optBoolean("op().undoing", false));
             op.state.operationHasSuccess = root.optBoolean("operationHasSuccess", root.optBoolean("op().operationHasSuccess", false));

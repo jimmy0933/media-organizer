@@ -25,11 +25,11 @@ echo "KVM check:"
 emulator -accel-check || true
 
 timeout 10s adb -s emulator-5554 shell input keyevent 82 || true
-timeout 60s adb -s emulator-5554 install -r dist/Media-Organizer.apk || true
+timeout 60s adb -s emulator-5554 install -r dist/Media-Organizer.apk
 
 CRASH_FOUND=false
 
-for run_idx in {1..3}; do
+for run_idx in {1..5}; do
    echo "--- Cold start run $run_idx ---"
    adb -s emulator-5554 logcat -c || true
    adb -s emulator-5554 shell am force-stop tw.mediaorganizer || true
@@ -49,11 +49,25 @@ for run_idx in {1..3}; do
    timeout 10s adb -s emulator-5554 shell uiautomator dump /data/local/tmp/window_dump.xml || true
    timeout 10s adb -s emulator-5554 shell cat /data/local/tmp/window_dump.xml > window_dump_start.xml || true
 
-   if grep -q "設定" window_dump_start.xml || true; then
+   if grep -q "設定" window_dump_start.xml; then
        echo "PASS: Settings text found on screen."
-       adb -s emulator-5554 shell input tap 900 150 || true
+       # Use uiautomator to get bounds of Settings instead of hardcoded coordinates
+       BOUNDS=$(grep -oP 'text="設定".*?bounds="\K[^"]+' window_dump_start.xml || echo "")
+       if [ -n "$BOUNDS" ]; then
+           # parse bounds [x1,y1][x2,y2]
+           X1=$(echo $BOUNDS | grep -oP '^\[\K\d+')
+           Y1=$(echo $BOUNDS | grep -oP '^\[\d+,\K\d+')
+           X2=$(echo $BOUNDS | grep -oP '\]\[\K\d+')
+           Y2=$(echo $BOUNDS | grep -oP '\]\[\d+,\K\d+')
+           CX=$(( (X1 + X2) / 2 ))
+           CY=$(( (Y1 + Y2) / 2 ))
+           adb -s emulator-5554 shell input tap $CX $CY
+       else
+           adb -s emulator-5554 shell input tap 900 150
+       fi
    else
        echo "ERROR: Settings text not found on screen."
+       bash -c "exit 1"
    fi
 
    sleep 5
@@ -62,17 +76,18 @@ for run_idx in {1..3}; do
    timeout 10s adb -s emulator-5554 shell uiautomator dump /data/local/tmp/window_dump.xml || true
    timeout 10s adb -s emulator-5554 shell cat /data/local/tmp/window_dump.xml > window_dump_settings.xml || true
 
-   if grep -q "深色模式" window_dump_settings.xml || grep -q "開發人員" window_dump_settings.xml || true; then
+   if grep -q "深色模式" window_dump_settings.xml || grep -q "開發人員" window_dump_settings.xml; then
         echo "PASS: Setting page confirmed open."
    else
         echo "ERROR: Setting page NOT open."
+        bash -c "exit 1"
    fi
 
    adb -s emulator-5554 shell input keyevent 4 || true # BACK
    sleep 5
 
    adb -s emulator-5554 logcat -d --pid="$PID" > "$DIAG_DIR/logcat_run_${run_idx}_api${API_LEVEL}.txt" || true
-   CRASH=$(adb -s emulator-5554 logcat -d --pid="$PID" | grep -E "FATAL EXCEPTION" || true)
+   CRASH=$(adb -s emulator-5554 logcat -d | grep -E "FATAL EXCEPTION" || true)
 
    if [[ -n "$CRASH" ]]; then
       echo "Crash detected on run $run_idx: $CRASH"
@@ -88,10 +103,11 @@ for run_idx in {1..3}; do
 
    timeout 10s adb -s emulator-5554 shell uiautomator dump /data/local/tmp/window_dump.xml || true
    timeout 10s adb -s emulator-5554 shell cat /data/local/tmp/window_dump.xml > window_dump_restore.xml || true
-   if grep -q "設定" window_dump_restore.xml || true; then
+   if grep -q "設定" window_dump_restore.xml; then
        echo "PASS: Main Activity survived background restore."
    else
        echo "ERROR: Main Activity NOT correctly restored."
+       bash -c "exit 1"
    fi
 done
 
