@@ -24,24 +24,24 @@ public class FileOperationTest {
             state.pending = new java.util.ArrayList<>();
             state.pending.add(move);
 
-            OperationState state = new OperationState();
-            op.isDeleting = state.isDeleting;
-            op.operationMoved = state.operationMoved;
-            op.pendingDeletes = state.pendingDeletes;
-            op.pending = state.pending;
-
             // This test is headless, so we bypass actual SQLite cursor verification via mock / logic testing.
             // Since OperationState.load does not have context, we must test its JSON fields.
-            OperationController op = OperationController.getInstance(); op.state = state; state.save(dir, op);
+            OperationController op = OperationController.getInstance();
+            op.state.isDeleting = state.isDeleting;
+            op.state.operationMoved = state.operationMoved;
+            op.state.pendingDeletes = state.pendingDeletes;
+            op.state.pending = state.pending;
+
+            op.state.save(dir, op);
 
             OperationController loadedOp = new OperationController();
-            loadedOp.load(dir, loadedOp);
+            loadedOp.state.load(dir, loadedOp);
 
-            if(!loadedOp.isDeleting) throw new RuntimeException("Missing isDeleting property");
-            if(loadedOp.operationMoved != 10) throw new RuntimeException("Missing operationMoved property");
-            if(loadedOp.pendingDeletes == null || loadedOp.pendingDeletes.isEmpty()) throw new RuntimeException("Missing pendingDeletes property");
-            if(loadedOp.pending == null || loadedOp.pending.isEmpty()) throw new RuntimeException("Missing pending property");
-            if(!loadedOp.pending.get(0).oldPath.equals("DCIM/")) throw new RuntimeException("Missing oldPath property");
+            if(!loadedOp.state.isDeleting) throw new RuntimeException("Missing isDeleting property");
+            if(loadedOp.state.operationMoved != 10) throw new RuntimeException("Missing operationMoved property");
+            if(loadedOp.state.pendingDeletes == null || loadedOp.state.pendingDeletes.isEmpty()) throw new RuntimeException("Missing pendingDeletes property");
+            if(loadedOp.state.pending == null || loadedOp.state.pending.isEmpty()) throw new RuntimeException("Missing pending property");
+            if(!loadedOp.state.pending.get(0).oldPath.equals("DCIM/")) throw new RuntimeException("Missing oldPath property");
 
             new File(dir, "op-state.json").delete();
             System.out.println("PASS op-state.json integration checks passed structurally in headless environment.");
