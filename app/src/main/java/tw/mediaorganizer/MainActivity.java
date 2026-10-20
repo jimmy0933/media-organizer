@@ -814,21 +814,21 @@ public int getItemCount() { return data.size(); }
  }
  private void promptMoveConfirmation(String folderName){
   String target=validateDestination(folderName);if(target==null)return;ArrayList<Scanner.Item> snapshot=new ArrayList<>(selected);
-  new androidx.appcompat.app.AlertDialog.Builder(this).setTitle("確認移動 "+snapshot.size()+" 個檔案").setMessage("目的地："+target+"\n移動後會離開原資料夾；不刪除重複檔。相似與人物分組請先確認。\n同名檔會加上識別碼，不覆蓋既有檔案。\n這次成功的移動會取代上次復原紀錄。").setNegativeButton("取消",null).setPositiveButton("移動",(d,w)->{op().getDestination()=target;op().getPending()=new ArrayList<>();for(Scanner.Item item:snapshot)if(!target.equals(item.path)){MoveRecord r=new MoveRecord();r.uri=item.uri;r.oldPath=item.path;r.oldName=item.name;r.newPath=target;r.newName=item.name;r.item=item;op().getPending().add(r);}op().undoing()=false;op().isDeleting()=false;op().operationHasSuccess()=false;op().getOperationMoved()=op().getOperationFailed()=0;op().fileBusy()=true;backupJournal();updateSelection();requestWrite();}).show();
+  new androidx.appcompat.app.AlertDialog.Builder(this).setTitle("確認移動 "+snapshot.size()+" 個檔案").setMessage("目的地："+target+"\n移動後會離開原資料夾；不刪除重複檔。相似與人物分組請先確認。\n同名檔會加上識別碼，不覆蓋既有檔案。\n這次成功的移動會取代上次復原紀錄。").setNegativeButton("取消",null).setPositiveButton("移動",(d,w)->{op().setDestination(target);op().setPending(new java.util.ArrayList<>());for(Scanner.Item item:snapshot)if(!target.equals(item.path)){MoveRecord r=new MoveRecord();r.uri=item.uri;r.oldPath=item.path;r.oldName=item.name;r.newPath=target;r.newName=item.name;r.item=item;op().getPending().add(r);}op().setUndoing(false);op().setDeleting(false);op().setOperationHasSuccess(false);op().setOperationMoved(0);op().setOperationFailed(0);op().setFileBusy(true);backupJournal();updateSelection();requestWrite();}).show();
  }
  private void confirmDelete(){
   if(selected.isEmpty()||op().fileBusy())return;
   ArrayList<Scanner.Item> snapshot=new ArrayList<>(selected);
-  op().getPendingDeletes()=snapshot;
-  op().isDeleting()=true;
-  op().fileBusy()=true;
-  op().getOperationDeleted()=op().getOperationDeleteFailed()=0;
+  op().setPendingDeletes(snapshot);
+  op().setDeleting(true);
+  op().setFileBusy(true);
+  op().setOperationDeleted(0);op().setOperationDeleteFailed(0);
   updateSelection();
   requestDelete();
  }
  private void requestDelete(){
   if(op().getPendingDeletes()==null||op().getPendingDeletes().isEmpty()){
-   op().fileBusy()=false;updateSelection();
+   op().setFileBusy(false);updateSelection();
    status.setText("刪除完成 · 成功 "+op().getOperationDeleted()+" · 失敗 "+op().getOperationDeleteFailed());
    render();
    return;
@@ -866,10 +866,10 @@ public int getItemCount() { return data.size(); }
    }
    final int d=directDeleted;
    ui(()->{
-    op().getOperationDeleted()+=d;
-    op().getPendingDeletes()=needPermissionList;
+    op().addOperationDeleted(d;
+    op().setPendingDeletes(needPermissionList);
     if(op().getPendingDeletes().isEmpty()){
-     op().fileBusy()=false;updateSelection();
+     op().setFileBusy(false);updateSelection();
      clearOpState();
      saveScanCache(result);
      status.setText("刪除完成 · 成功 "+op().getOperationDeleted()+" · 失敗 "+op().getOperationDeleteFailed());
@@ -973,12 +973,12 @@ public int getItemCount() { return data.size(); }
                             exists = true;
                             String currentPath = c.getString(0);
                             if (r.newPath != null && currentPath != null && r.newPath.equals(currentPath)) {
-                                op().getOperationMoved()++;
+                                op().addOperationMoved(1);
                                 continue;
                             }
                         }
                     } catch (Exception e) {}
-                    if (!exists) { op().getOperationFailed()++; continue; }
+                    if (!exists) { op().addOperationFailed(1); continue; }
                     if (result != null) {
                         for (Scanner.Item existing : result.all) {
                             if (existing.uri.equals(r.uri)) { r.item = existing; break; }
@@ -998,7 +998,7 @@ public int getItemCount() { return data.size(); }
 
  private void requestDeleteBatch(){
   if(op().getPendingDeletes()==null||op().getPendingDeletes().isEmpty()){
-   op().fileBusy()=false;
+   op().setFileBusy(false);
    clearOpState();
    saveScanCache(result);
    updateSelection();
@@ -1013,15 +1013,15 @@ public int getItemCount() { return data.size(); }
    startIntentSenderForResult(MediaStore.createDeleteRequest(getContentResolver(),uris).getIntentSender(),52,null,0,0,0);
   }catch(Exception e){
    status.setText("刪除已完成（直接刪除 "+op().getOperationDeleted()+" 個，需要授權或失敗 "+op().getPendingDeletes().size()+" 個）");
-   op().getPendingDeletes()=null;
-   op().fileBusy()=false;
+   op().setPendingDeletes(null);
+   op().setFileBusy(false);
    saveScanCache(result);
    updateSelection();
    render();
   }
  }
  private void finishMoveOperation(){
-  op().getPending()=null;op().fileBusy()=false;
+  op().setPending(null);op().setFileBusy(false);
   if(!op().undoing()){
    if(op().getOperationMoved()==0)restoreJournalBackup();else clearJournalBackup();
    saveScanCache(result);
@@ -1036,7 +1036,7 @@ public int getItemCount() { return data.size(); }
   status.setText((op().undoing()?"復原":"移動")+"完成 · 成功 "+op().getOperationMoved()+" · 失敗 "+op().getOperationFailed()+(op().undoing()?"；請重新掃描更新分組。":"；可繼續勾選移到同一資料夾。"));
   clearOpState();
   finishMoveOperation();
-  op().operationHasSuccess()=false;op().getOperationMoved()=op().getOperationFailed()=0;
+  op().setOperationHasSuccess(false);op().setOperationMoved(0);op().setOperationFailed(0);
   return;
  }
   saveOpState();
@@ -1045,17 +1045,17 @@ public int getItemCount() { return data.size(); }
  public void onActivityResult(int request,int response,Intent data){super.onActivityResult(request,response,data);
   if(request==51){if(response==RESULT_OK)applyBatch();else{
    status.setText("未獲授權 · 已完成：成功 "+op().getOperationMoved()+" · 失敗 "+op().getOperationFailed()+"。未授權之檔案已保留可重試。");
-   op().getPending()=null;
+   op().setPending(null);
    clearOpState();
    finishMoveOperation();
-   op().operationHasSuccess()=false;op().getOperationMoved()=op().getOperationFailed()=0;
+   op().setOperationHasSuccess(false);op().setOperationMoved(0);op().setOperationFailed(0);
   }}
   else if(request==52){if(response==RESULT_OK)applyDeleteBatch();else{
    status.setText("未獲刪除授權 · 已完成：成功 "+op().getOperationDeleted()+" · 失敗 "+op().getOperationDeleteFailed()+"。未授權之檔案已保留。");
    if(op().getOperationDeleted()>0)saveScanCache(result);
-   op().getPendingDeletes()=null;
+   op().setPendingDeletes(null);
    clearOpState();
-   op().fileBusy()=false;updateSelection();render();
+   op().setFileBusy(false);updateSelection();render();
   }}
  }
 
@@ -1064,12 +1064,12 @@ public int getItemCount() { return data.size(); }
   final List<Scanner.Item> batch=new ArrayList<>(op().getPendingDeletes().subList(0,Math.min(100,op().getPendingDeletes().size())));
   for(Scanner.Item item:batch){item.removed=true;selected.remove(item);}
   op().getPendingDeletes().removeAll(batch);
-  op().getOperationDeleted()+=batch.size();
+  op().addOperationDeleted(batch.size();
   if(op().getPendingDeletes()!=null&&!op().getPendingDeletes().isEmpty()){
    requestDeleteBatch();
   }else{
-   op().getPendingDeletes()=null;
-   op().fileBusy()=false;
+   op().setPendingDeletes(null);
+   op().setFileBusy(false);
    clearOpState();
    saveScanCache(result);
    status.setText("刪除完成 · 成功 "+op().getOperationDeleted()+" · 失敗 "+op().getOperationDeleteFailed());
@@ -1101,12 +1101,12 @@ public int getItemCount() { return data.size(); }
     r.newName = finalName;
     if(!op().undoing()){appendJournalPending(r);}
     int updated=getContentResolver().update(r.uri,values,null,null);if(updated!=1)throw new java.io.IOException("檔案更新失敗");moved++;
-    if(!op().undoing()){if(!op().operationHasSuccess()){op().operationHasSuccess()=true;}}
+    if(!op().undoing()){if(!op().operationHasSuccess()){op().setOperationHasSuccess(true);}}
     if(op().undoing()){removeJournal(r.uri);}
     if(r.item!=null){r.item.removed=true;}
     successfulRecords.add(r);
    }catch(Exception e){failed++;}}
-   final int m=moved,f=failed;ui(()->{op().getOperationMoved()+=m;op().getOperationFailed()+=f;
+   final int m=moved,f=failed;ui(()->{op().addOperationMoved(m);op().addOperationFailed(f);
     if(!op().undoing() && !successfulRecords.isEmpty()) {
      try { promotePendingJournal(); } catch(Exception e){}
     }
@@ -1116,7 +1116,7 @@ public int getItemCount() { return data.size(); }
     else{
      status.setText((op().undoing()?"復原":"移動")+"完成 · 成功 "+op().getOperationMoved()+" · 失敗 "+op().getOperationFailed()+(op().undoing()?"；請重新掃描更新分組。":"；可繼續勾選移到同一資料夾。"));
      finishMoveOperation();
-     op().operationHasSuccess()=false;op().getOperationMoved()=op().getOperationFailed()=0;
+     op().setOperationHasSuccess(false);op().setOperationMoved(0);op().setOperationFailed(0);
     }});
   });
  }
@@ -1178,7 +1178,7 @@ public int getItemCount() { return data.size(); }
   }
  }
  public synchronized void removeJournal(Uri uri)throws Exception{JSONArray a=readJournal(),next=new JSONArray();for(int i=0;i<a.length();i++)if(!a.getJSONObject(i).getString("uri").equals(uri.toString()))next.put(a.getJSONObject(i));writeJournal(next);}
- private void undo(){if(op().fileBusy()||busy)return;try{JSONArray a=readJournal();if(a.length()==0){status.setText("沒有可復原的移動紀錄。");return;}new androidx.appcompat.app.AlertDialog.Builder(this).setTitle("復原上次移動").setMessage("將 "+a.length()+" 個紀錄移回原資料夾。同名檔會加識別碼；已不存在的檔案會列為失敗。").setNegativeButton("取消",null).setPositiveButton("復原",(d,w)->{try{op().getPending()=new ArrayList<>();for(int i=0;i<a.length();i++){JSONObject o=a.getJSONObject(i);MoveRecord r=new MoveRecord();r.uri=Uri.parse(o.getString("uri"));r.newPath=o.getString("path");r.newName=o.getString("name");op().getPending().add(r);}op().undoing()=true;op().operationHasSuccess()=false;op().getOperationMoved()=op().getOperationFailed()=0;op().fileBusy()=true;updateSelection();requestWrite();}catch(Exception e){status.setText("復原紀錄無法讀取。");}}).show();}catch(Exception e){status.setText("復原紀錄無法讀取。");}}
+ private void undo(){if(op().fileBusy()||busy)return;try{JSONArray a=readJournal();if(a.length()==0){status.setText("沒有可復原的移動紀錄。");return;}new androidx.appcompat.app.AlertDialog.Builder(this).setTitle("復原上次移動").setMessage("將 "+a.length()+" 個紀錄移回原資料夾。同名檔會加識別碼；已不存在的檔案會列為失敗。").setNegativeButton("取消",null).setPositiveButton("復原",(d,w)->{try{op().setPending(new java.util.ArrayList<>());for(int i=0;i<a.length();i++){JSONObject o=a.getJSONObject(i);MoveRecord r=new MoveRecord();r.uri=Uri.parse(o.getString("uri"));r.newPath=o.getString("path");r.newName=o.getString("name");op().getPending().add(r);}op().setUndoing(true);op().setOperationHasSuccess(false);op().setOperationMoved(0);op().setOperationFailed(0);op().setFileBusy(true);updateSelection();requestWrite();}catch(Exception e){status.setText("復原紀錄無法讀取。");}}).show();}catch(Exception e){status.setText("復原紀錄無法讀取。");}}
  private void help(){new androidx.appcompat.app.AlertDialog.Builder(this).setTitle("使用說明與隱私").setMessage("1. 授權所有照片與影片後開始掃描。可篩選來源資料夾，或對全相簿掃描。\n2. 重複採 SHA-256；相似照片使用感知雜湊、色彩與比例，影片抽取 7 個畫面。\n3. 人物在手機內用 MobileFaceNet 比對抽樣人臉；分數不是準確率。正面清楚人臉效果較好。\n4. 掃描過程中即可即時勾選檔案進行『移到此資料夾』或『刪除』。\n5. 不自動刪除、不上傳、不在背景持續監控。\n6. 復原只保留上次移動批次。清快取只移除本程式縮圖，不動原照片／影片。").setPositiveButton("關閉",null).show();}
  private void clearThumbs(){resultGeneration = ScanService.clearCacheAsync(this);}
  private File cacheFile(){return new File(getFilesDir(),"scan-cache.json");}
