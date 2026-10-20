@@ -866,7 +866,7 @@ public int getItemCount() { return data.size(); }
    }
    final int d=directDeleted;
    ui(()->{
-    op().addOperationDeleted(d;
+    op().addOperationDeleted(d);
     op().setPendingDeletes(needPermissionList);
     if(op().getPendingDeletes().isEmpty()){
      op().setFileBusy(false);updateSelection();
@@ -1064,7 +1064,7 @@ public int getItemCount() { return data.size(); }
   final List<Scanner.Item> batch=new ArrayList<>(op().getPendingDeletes().subList(0,Math.min(100,op().getPendingDeletes().size())));
   for(Scanner.Item item:batch){item.removed=true;selected.remove(item);}
   op().getPendingDeletes().removeAll(batch);
-  op().addOperationDeleted(batch.size();
+  op().addOperationDeleted(batch.size());
   if(op().getPendingDeletes()!=null&&!op().getPendingDeletes().isEmpty()){
    requestDeleteBatch();
   }else{
