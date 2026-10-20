@@ -927,16 +927,16 @@ public int getItemCount() { return data.size(); }
             while ((n = in.read(b)) > 0) out.write(b, 0, n);
             JSONObject root = new JSONObject(out.toString("UTF-8"));
 
-            op().isDeleting() = root.optBoolean("op().isDeleting()", false);
-            op().undoing() = root.optBoolean("op().undoing()", false);
-            op().operationHasSuccess() = root.optBoolean("op().operationHasSuccess()", false);
-            op().getOperationMoved() = root.optInt("op().getOperationMoved()", 0);
-            op().getOperationFailed() = root.optInt("op().getOperationFailed()", 0);
-            op().getOperationDeleted() = root.optInt("op().getOperationDeleted()", 0);
-            op().getOperationDeleteFailed() = root.optInt("op().getOperationDeleteFailed()", 0);
+            op().setDeleting(root.optBoolean("op().isDeleting()", false));
+            op().setUndoing(root.optBoolean("op().undoing()", false));
+            op().setOperationHasSuccess(root.optBoolean("op().operationHasSuccess()", false));
+            op().setOperationMoved(root.optInt("op().getOperationMoved()", 0));
+            op().setOperationFailed(root.optInt("op().getOperationFailed()", 0));
+            op().setOperationDeleted(root.optInt("op().getOperationDeleted()", 0));
+            op().setOperationDeleteFailed(root.optInt("op().getOperationDeleteFailed()", 0));
 
             if (root.has("op().getPendingDeletes()")) {
-                op().setPendingDeletes(new) ArrayList<>();
+                op().setPendingDeletes(new java.util.ArrayList<>());
                 JSONArray deletes = root.getJSONArray("op().getPendingDeletes()");
                 for (int i = 0; i < deletes.length(); i++) {
                     Scanner.Item item = new Scanner.Item();
@@ -957,7 +957,7 @@ public int getItemCount() { return data.size(); }
             }
 
             if (root.has("op().getPending()")) {
-                op().setPending(new) ArrayList<>();
+                op().setPending(new java.util.ArrayList<>());
                 JSONArray moves = root.getJSONArray("op().getPending()");
                 for (int i = 0; i < moves.length(); i++) {
                     JSONObject mo = moves.getJSONObject(i);
