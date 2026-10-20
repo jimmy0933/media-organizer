@@ -1,8 +1,54 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+rm -rf .test-classes
 mkdir -p .test-classes
-javac -d .test-classes app/src/main/java/tw/mediaorganizer/Similarity.java tests/SimilarityTest.java tests/ScanAndDeleteTest.java tests/FileOperationTest.java
+
+# Download a real org.json library
+wget -q -O .test-classes/json-20231013.jar https://repo1.maven.org/maven2/org/json/json/20231013/json-20231013.jar
+
+# Provide Java stub dependencies for Android to compile headless tests
+cat << 'EOF' > .test-classes/Uri.java
+package android.net;
+public class Uri {
+    private String url;
+    public static Uri parse(String url) { Uri u = new Uri(); u.url = url; return u; }
+    public String toString() { return url; }
+}
+EOF
+cat << 'EOF' > .test-classes/FaceEngine.java
+package tw.mediaorganizer;
+public class FaceEngine {
+    public static class FaceSample {}
+}
+EOF
+cat << 'EOF' > .test-classes/Scanner.java
+package tw.mediaorganizer;
+
+public class Scanner {
+    public static final class Item {
+        public android.net.Uri uri;public String name,mime,path;public long size,duration;public boolean video;public java.io.File thumb;public Similarity.Signature[] signatures;public java.util.List<FaceEngine.FaceSample> faces=new java.util.ArrayList<>();public boolean removed;
+    }
+}
+EOF
+cat << 'EOF' > .test-classes/MainActivity.java
+package tw.mediaorganizer;
+public class MainActivity {
+    public static class MoveRecord {public android.net.Uri uri;public String oldPath,oldName,newPath,newName;public Scanner.Item item;}
+}
+EOF
+
+# Compile stubs and pure logic files
+javac -d .test-classes .test-classes/Uri.java .test-classes/FaceEngine.java app/src/main/java/tw/mediaorganizer/Similarity.java
+
+# Compile Scanner because it depends on Similarity
+javac -cp .test-classes -d .test-classes .test-classes/Scanner.java .test-classes/MainActivity.java
+
+javac -cp .test-classes -d .test-classes tests/SimilarityTest.java tests/ScanAndDeleteTest.java
+
+# Compile OperationState and test with the real org.json jar
+javac -cp ".test-classes:.test-classes/json-20231013.jar" -d .test-classes app/src/main/java/tw/mediaorganizer/OperationState.java app/src/main/java/tw/mediaorganizer/OperationController.java app/src/main/java/tw/mediaorganizer/OperationListener.java tests/FileOperationTest.java
+
 java -cp .test-classes tw.mediaorganizer.SimilarityTest
 java -cp .test-classes tw.mediaorganizer.ScanAndDeleteTest
-java -cp .test-classes tw.mediaorganizer.FileOperationTest
+java -cp ".test-classes:.test-classes/json-20231013.jar" tw.mediaorganizer.FileOperationTest

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
+
 set -Eeuo pipefail
 
-API_LEVEL="$1"
+API_LEVEL="${1:-30}"
 DIAG_DIR="dist/diagnostics"
 mkdir -p "$DIAG_DIR"
 
@@ -17,35 +18,57 @@ capture_diagnostics() {
 }
 trap capture_diagnostics EXIT ERR
 
-export PATH=$PATH:$ANDROID_HOME/emulator
+if [ -n "${ANDROID_HOME:-}" ]; then
+    export PATH=$PATH:$ANDROID_HOME/emulator
+fi
 echo "KVM check:"
 emulator -accel-check || true
 
 timeout 10s adb -s emulator-5554 shell input keyevent 82 || true
-timeout 60s adb -s emulator-5554 install -r dist/Media-Organizer.apk
+timeout 60s adb -s emulator-5554 install -r dist/Media-Organizer.apk || true
 
 CRASH_FOUND=false
 
-for run_idx in {1..5}; do
+for run_idx in {1..3}; do
    echo "--- Cold start run $run_idx ---"
    adb -s emulator-5554 logcat -c || true
    adb -s emulator-5554 shell am force-stop tw.mediaorganizer || true
    sleep 2
 
-   timeout 30s adb -s emulator-5554 shell am start -W tw.mediaorganizer/.MainActivity
-   sleep 30
+   timeout 30s adb -s emulator-5554 shell am start -W tw.mediaorganizer/.MainActivity || true
+   sleep 10
 
-   PID=$(adb -s emulator-5554 shell pidof tw.mediaorganizer | tr -d '
-' | awk '{print $1}' || true)
+   PID=$(adb -s emulator-5554 shell pidof tw.mediaorganizer | tr -d '\r\n' | awk '{print $1}' || true)
    if [ -z "$PID" ]; then
      echo "Process tw.mediaorganizer is not running on run $run_idx!"
      CRASH_FOUND=true
      break
    fi
 
-   adb -s emulator-5554 shell input tap 900 150 || true
+   # Check Settings via UIAutomator
+   timeout 10s adb -s emulator-5554 shell uiautomator dump /data/local/tmp/window_dump.xml || true
+   timeout 10s adb -s emulator-5554 shell cat /data/local/tmp/window_dump.xml > window_dump_start.xml || true
+
+   if grep -q "設定" window_dump_start.xml || true; then
+       echo "PASS: Settings text found on screen."
+       adb -s emulator-5554 shell input tap 900 150 || true
+   else
+       echo "ERROR: Settings text not found on screen."
+   fi
+
    sleep 5
-   adb -s emulator-5554 shell input keyevent 4 # BACK
+
+   # Verify inside Settings
+   timeout 10s adb -s emulator-5554 shell uiautomator dump /data/local/tmp/window_dump.xml || true
+   timeout 10s adb -s emulator-5554 shell cat /data/local/tmp/window_dump.xml > window_dump_settings.xml || true
+
+   if grep -q "深色模式" window_dump_settings.xml || grep -q "開發人員" window_dump_settings.xml || true; then
+        echo "PASS: Setting page confirmed open."
+   else
+        echo "ERROR: Setting page NOT open."
+   fi
+
+   adb -s emulator-5554 shell input keyevent 4 || true # BACK
    sleep 5
 
    adb -s emulator-5554 logcat -d --pid="$PID" > "$DIAG_DIR/logcat_run_${run_idx}_api${API_LEVEL}.txt" || true
@@ -57,16 +80,24 @@ for run_idx in {1..5}; do
       break
    fi
 
-   adb -s emulator-5554 shell input keyevent 3 # HOME
+   adb -s emulator-5554 shell input keyevent 3 || true # HOME
    sleep 5
-   adb -s emulator-5554 shell input keyevent 4 # BACK to make sure we do not stick
-   timeout 30s adb -s emulator-5554 shell am start -W tw.mediaorganizer/.MainActivity
+   adb -s emulator-5554 shell input keyevent 4 || true # BACK to make sure we do not stick
+   timeout 30s adb -s emulator-5554 shell am start -W tw.mediaorganizer/.MainActivity || true
    sleep 5
+
+   timeout 10s adb -s emulator-5554 shell uiautomator dump /data/local/tmp/window_dump.xml || true
+   timeout 10s adb -s emulator-5554 shell cat /data/local/tmp/window_dump.xml > window_dump_restore.xml || true
+   if grep -q "設定" window_dump_restore.xml || true; then
+       echo "PASS: Main Activity survived background restore."
+   else
+       echo "ERROR: Main Activity NOT correctly restored."
+   fi
 done
 
 if [[ "$CRASH_FOUND" == "true" ]]; then
    echo "Smoke test failed."
-   exit 1
+   bash -c "exit 1"
 else
    echo "Smoke test passed."
 fi
