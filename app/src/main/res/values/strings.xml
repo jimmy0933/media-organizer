@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Media Organizer</string>
+    <string name="desc_settings">設定</string>
+    <string name="desc_back">返回</string>
+</resources>
